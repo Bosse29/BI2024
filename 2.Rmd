@@ -1,0 +1,129 @@
+---
+title: '2'
+author: "GhazalArzanian"
+date: "2024-11-12"
+output: html_document
+---
+
+### 2.a
+
+```{r}
+data <- read.csv("miami-housing.csv")
+head(data)
+str(data)
+
+
+```
+Check if the Parcelno is the a unique identifier ?
+```{r}
+duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+
+```
+CHECK IF ALWAYS THE LAST MONTHES HAS THE HIGHER PRICES?
+```{r}
+
+# Filter rows with duplicate PARCELNO values, add max_month, and check opposite flags
+result <- data %>%
+  filter(duplicated(PARCELNO) | duplicated(PARCELNO, fromLast = TRUE)) %>%
+  group_by(PARCELNO) %>%
+  arrange(PARCELNO, month_sold) %>%
+  mutate(
+    max_month = max(month_sold),                        # Add max_month as the highest MONTH_SOLD for each PARCELNO
+    is_latest_month = month_sold == max_month,          # Check if this row is for the latest month
+    is_price_higher_for_latest_month = SALE_PRC == max(SALE_PRC[is_latest_month])  # Check if SALE_PRC is highest for latest month
+  ) %>%
+  ungroup() %>%
+  filter(is_latest_month != is_price_higher_for_latest_month)  # Filter rows where flags are opposite
+
+# Display the result
+print(result)
+```
+
+FILTER THE ROW THAT HAVE SAME PARVELNO AND DIFFERENT MONTHES WITH THE LAST MONTH.
+```{r}
+# Install and load dplyr if you haven't already
+library(dplyr)
+
+# Group by parcelno and keep only the row with the maximum month_sold value
+data <- data %>%
+  group_by(PARCELNO) %>%
+  filter(month_sold == max(month_sold)) %>%
+  ungroup()
+
+```
+THE DUPLICATED ONE THAT ARE LEFT ARE THE ONE WITH THE SAME MONTH.
+```{r}
+duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+```
+FOR THE ROWS WITH THE SAME MONTH AND THE SAME PARCELNO WE CACULATE THE AVERAGAE SALE_PRC.
+```{r}
+# Load dplyr
+library(dplyr)
+
+# Aggregate by PARCELNO, calculating the average SALE_PRC, and keeping the first value of other columns
+aggregated_data <- data %>%
+  group_by(PARCELNO) %>%
+  summarise(
+    avg_sale_prc = mean(SALE_PRC, na.rm = TRUE),
+    across(everything(), ~ first(.), .names = "first_{col}")
+  ) %>%
+  ungroup()
+
+```
+```{r}
+duplicate_rows <- aggregated_data[duplicated(aggregated_data$PARCELNO) | duplicated(aggregated_data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+```
+```{r}
+
+data<-aggregated_data
+```
+### 2.b. Statistical properties
+```{r}
+summary(data)
+```
+```{r}
+correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
+print(correlations)
+
+```
+```{r}
+
+correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
+
+# Find pairs with an absolute correlation greater than 0.5 and less than 1 (to exclude self-correlations)
+high_corr <- which(abs(correlations) > 0.5 & abs(correlations) < 1, arr.ind = TRUE)
+
+# Create a data frame with the filtered high correlations
+high_corr_pairs <- data.frame(
+  Column1 = rownames(correlations)[high_corr[, 1]],
+  Column2 = colnames(correlations)[high_corr[, 2]],
+  Correlation = correlations[high_corr]
+)
+
+# Display the result
+print(high_corr_pairs)
+```
+### 2.c.
+Missing values 
+
+
+```{r}
+colSums(is.na(data))
+```
+
+Distribution of the numeric values 
+
+```{r}
+# Histogram for each numerical attribute
+numeric_cols <- data[sapply(data, is.numeric)]
+numeric_cols$PARCELNO <- NULL
+for (col in names(numeric_cols)) {
+  hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col)
+}
+
+# Boxplot for each numerical attribute
+boxplot(numeric_cols, main = "Boxplot of Numerical Attributes", las = 2)
+```
