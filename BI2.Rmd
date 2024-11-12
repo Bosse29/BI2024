@@ -1,0 +1,15 @@
+---
+title: "BI2"
+output: html_document
+date: "2024-11-12"
+---
+
+```{r}
+data <- read.csv("miami-housing.csv")
+```
+
+
+```{r}
+
+```
+
