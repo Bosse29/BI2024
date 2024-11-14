@@ -6,6 +6,7 @@ output: html_document
 ---
 
 ### 2.a
+First we look at the head of the data to see how does the data look like.And also to check the variables types. As we can see all the variables are numbbers num or int.
 
 ```{r}
 data <- read.csv("miami-housing.csv")
@@ -15,14 +16,16 @@ str(data)
 
 ```
 Check if the Parcelno is the a unique identifier ?
+As we see there are some rows that have the same parcelno numbers.It means they are different records for the same property. So since the data is for one yearwe will consider the later month and delete the earlier months.
 ```{r}
 duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
 duplicate_rows
 
 ```
-CHECK IF ALWAYS THE LAST MONTHES HAS THE HIGHER PRICES?
+CHECK IF ALWAYS THE LAST MONTHES HAS THE HIGHER PRICES? 
+AS we see the higher price is not always for the last month.
 ```{r}
-
+library(dplyr)
 # Filter rows with duplicate PARCELNO values, add max_month, and check opposite flags
 result <- data %>%
   filter(duplicated(PARCELNO) | duplicated(PARCELNO, fromLast = TRUE)) %>%
@@ -41,6 +44,7 @@ print(result)
 ```
 
 FILTER THE ROW THAT HAVE SAME PARVELNO AND DIFFERENT MONTHES WITH THE LAST MONTH.
+We keep the record with the last month for the rows that have equal parcelno.
 ```{r}
 # Install and load dplyr if you haven't already
 library(dplyr)
@@ -57,7 +61,8 @@ THE DUPLICATED ONE THAT ARE LEFT ARE THE ONE WITH THE SAME MONTH.
 duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
 duplicate_rows
 ```
-FOR THE ROWS WITH THE SAME MONTH AND THE SAME PARCELNO WE CACULATE THE AVERAGAE SALE_PRC.
+FOR THE RECORDS WITH THE SAME MONTH AND THE SAME PARCELNO WE CACULATE THE AVERAGAE SALE_PRC.
+
 ```{r}
 # Load dplyr
 library(dplyr)
@@ -67,15 +72,17 @@ aggregated_data <- data %>%
   group_by(PARCELNO) %>%
   summarise(
     avg_sale_prc = mean(SALE_PRC, na.rm = TRUE),
-    across(everything(), ~ first(.), .names = "first_{col}")
+    across(-SALE_PRC, ~ first(.))
   ) %>%
   ungroup()
 
 ```
+
 ```{r}
 duplicate_rows <- aggregated_data[duplicated(aggregated_data$PARCELNO) | duplicated(aggregated_data$PARCELNO, fromLast = TRUE), ]
 duplicate_rows
 ```
+Now we have a clean data that dosent have duplicated PARCELNO.
 ```{r}
 
 data<-aggregated_data
@@ -84,11 +91,13 @@ data<-aggregated_data
 ```{r}
 summary(data)
 ```
+We check if there is any correlation between numeric values (all the vriables in this data) or not.
 ```{r}
 correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
 print(correlations)
 
 ```
+In this step we want to look that variables that have more than 0.5 absolute correlation with each other.
 ```{r}
 
 correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
@@ -107,23 +116,92 @@ high_corr_pairs <- data.frame(
 print(high_corr_pairs)
 ```
 ### 2.c.
-Missing values 
-
+Missing values.
+The data is clean and we dont have any missing data.
 
 ```{r}
 colSums(is.na(data))
 ```
 
 Distribution of the numeric values 
+We use boxplot and histogram to look that the distribution of the varibles.
 
 ```{r}
-# Histogram for each numerical attribute
+
+# Remove the PARCELNO column if it exists
 numeric_cols <- data[sapply(data, is.numeric)]
 numeric_cols$PARCELNO <- NULL
+
+# Define the columns for which we want bar plots
+barplot_columns <- c("structure_quality", "month_sold", "avno60plus", "age")
+
+# Loop through each numeric column and plot accordingly
 for (col in names(numeric_cols)) {
-  hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col)
+  if (col %in% barplot_columns) {
+    # Create a bar plot to display the frequency of each unique value
+    freq_table <- table(numeric_cols[[col]])
+    barplot(freq_table, main = paste("Frequency of values in", col), xlab = col, ylab = "Frequency", 
+            col = "lightblue", border = "gray")
+  } else {
+    # Create a simple histogram for other numeric columns
+    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col)
+  }
 }
+
 
 # Boxplot for each numerical attribute
 boxplot(numeric_cols, main = "Boxplot of Numerical Attributes", las = 2)
 ```
+As we see in the boxplot the average sale price has a high range and we want to look throught this column to find the outliers.
+
+```{r}
+boxplot(data$avg_sale_prc, main = "Boxplot of SALE_PRC", ylab = "Sale Price")
+
+```
+
+```{r}
+Q1 <- quantile(data$SPEC_FEAT_VAL, 0.25)
+Q3 <- quantile(data$SPEC_FEAT_VAL, 0.75)
+IQR <- Q3 - Q1
+outliers <- data[data$SPEC_FEAT_VAL < (Q1 - 1.5 * IQR) | data$SPEC_FEAT_VAL> (Q3 + 1.5 * IQR), ]
+print(outliers)
+
+
+```
+We Wanted to see if there is any outlier in the data or not. We considered "avg_sale_prc", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST" and made the scatterplot for them as we can see there is not any specific outlier with the combined variables.
+
+```{r}
+# Load the necessary library
+library(GGally)
+
+# Select only the specified columns
+selected_data <- data[, c("avg_sale_prc", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST")]
+
+# Create a scatterplot matrix with reduced alpha for the points
+ggpairs(selected_data, 
+        title = "Scatterplot Matrix for Selected Variables")
+
+
+
+```
+```{r}
+# Install and load the sf package if not already installed
+library(sf)
+
+# Load the shapefile
+zip_shapefile <- st_read("tl_2016_us_zcta510.shp")
+# Assuming your data frame is called 'data' and has 'LATITUDE' and 'LONGITUDE' column
+points_sf <- st_as_sf(data, coords = c("LONGITUDE", "LATITUDE"), crs = st_crs(zip_shapefile))
+
+# Perform a spatial join to get the ZIP code for each point
+data_with_zip <- st_join(points_sf, zip_shapefile, join = st_within)
+
+# Extract the ZIP code column (e.g., "ZCTA5CE20" is often the ZIP code column name)
+data_with_zip$ZIP_CODE <- data_with_zip$ZCTA5CE20
+
+# View the result
+print(data_with_zip)
+
+
+```
+
