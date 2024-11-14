@@ -9,7 +9,8 @@ output: html_document
 First we look at the head of the data to see how does the data look like.And also to check the variables types. As we can see all the variables are numbbers num or int.
 
 ```{r}
-data <- read.csv("miami-housing.csv")
+df <- read.csv("miami-housing.csv")
+data<-df
 head(data)
 str(data)
 
@@ -184,24 +185,54 @@ ggpairs(selected_data,
 
 
 ```
+
 ```{r}
-# Install and load the sf package if not already installed
+# Install necessary packages
+install.packages(c("sf", "tigris", "dplyr"))
+
+# Load libraries
 library(sf)
+library(tigris)
+library(dplyr)
+# Use caching to speed up subsequent downloads
+options(tigris_use_cache = TRUE)
 
-# Load the shapefile
-zip_shapefile <- st_read("tl_2016_us_zcta510.shp")
-# Assuming your data frame is called 'data' and has 'LATITUDE' and 'LONGITUDE' column
-points_sf <- st_as_sf(data, coords = c("LONGITUDE", "LATITUDE"), crs = st_crs(zip_shapefile))
+# Download ZCTAs shapefile
+zctas <- zctas(cb = TRUE, year = 2016)  # Adjust the year as needed
 
-# Perform a spatial join to get the ZIP code for each point
-data_with_zip <- st_join(points_sf, zip_shapefile, join = st_within)
 
-# Extract the ZIP code column (e.g., "ZCTA5CE20" is often the ZIP code column name)
-data_with_zip$ZIP_CODE <- data_with_zip$ZCTA5CE20
-
-# View the result
-print(data_with_zip)
 
 
 ```
 
+```{r}
+df<-data 
+# Ensure your dataframe has numeric latitude and longitude
+df$LATITUDE <- as.numeric(df$LATITUDE)
+df$LONGITUDE <- as.numeric(df$LONGITUDE)
+
+# Remove rows with missing coordinates
+df <- df %>% filter(!is.na(LATITUDE) & !is.na(LONGITUDE))
+
+# Convert to sf object with WGS84 CRS (EPSG:4326)
+df_sf <- st_as_sf(df, coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+# Transform ZCTAs to match df_sf CRS if necessary
+zctas <- st_transform(zctas, st_crs(df_sf))
+# Perform spatial join to attach ZIP codes
+names(zctas)
+```
+```{r}
+# Set the correct ZIP code column name
+zip_code_column <- "ZCTA5CE10"  # Or "GEOID10", both contain ZIP code information
+# Perform spatial join using the correct ZIP code column
+df_with_zip <- st_join(df_sf, zctas[zip_code_column], left = TRUE)
+# Rename the ZIP code column for clarity
+df_with_zip <- df_with_zip %>% rename(ZIP_CODE = all_of(zip_code_column))
+
+
+```
+```{r}
+# Remove the 'geometry' column from 'df'
+df_with_zip$geometry <- NULL
+
+```
