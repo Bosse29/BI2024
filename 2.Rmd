@@ -11,11 +11,34 @@ First we look at the head of the data to see how does the data look like.And als
 ```{r}
 df <- read.csv("miami-housing.csv")
 data<-df
-head(data)
+#head(data)
 str(data)
-
+summary(data)
 
 ```
+In this step we want to look that variables that have more than 0.5 absolute correlation with each other.
+```{r}
+# Compute correlations
+correlations <- cor(data, use = "complete.obs")
+
+# Find pairs with an absolute correlation greater than 0.5 and less than 1 (to exclude self-correlations)
+high_corr <- which(abs(correlations) > 0.5 & abs(correlations) < 1, arr.ind = TRUE)
+
+# Create a data frame with the filtered high correlations
+high_corr_pairs <- data.frame(
+  Column1 = rownames(correlations)[high_corr[, 1]],
+  Column2 = colnames(correlations)[high_corr[, 2]],
+  Correlation = correlations[high_corr]
+)
+
+# Remove duplicate pairs (where Column1 and Column2 are swapped)
+high_corr_pairs <- high_corr_pairs[!duplicated(t(apply(high_corr_pairs[, 1:2], 1, sort))), ]
+
+# Display the result
+print(high_corr_pairs)
+
+```
+
 Check if the Parcelno is the a unique identifier ?
 As we see there are some rows that have the same parcelno numbers.It means they are different records for the same property. So since the data is for one yearwe will consider the later month and delete the earlier months.
 ```{r}
@@ -72,7 +95,7 @@ library(dplyr)
 aggregated_data <- data %>%
   group_by(PARCELNO) %>%
   summarise(
-    avg_sale_prc = mean(SALE_PRC, na.rm = TRUE),
+    SALE_PRC = mean(SALE_PRC, na.rm = TRUE),
     across(-SALE_PRC, ~ first(.))
   ) %>%
   ungroup()
@@ -98,24 +121,8 @@ correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
 print(correlations)
 
 ```
-In this step we want to look that variables that have more than 0.5 absolute correlation with each other.
-```{r}
 
-correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
 
-# Find pairs with an absolute correlation greater than 0.5 and less than 1 (to exclude self-correlations)
-high_corr <- which(abs(correlations) > 0.5 & abs(correlations) < 1, arr.ind = TRUE)
-
-# Create a data frame with the filtered high correlations
-high_corr_pairs <- data.frame(
-  Column1 = rownames(correlations)[high_corr[, 1]],
-  Column2 = colnames(correlations)[high_corr[, 2]],
-  Correlation = correlations[high_corr]
-)
-
-# Display the result
-print(high_corr_pairs)
-```
 ### 2.c.
 Missing values.
 The data is clean and we dont have any missing data.
@@ -142,10 +149,10 @@ for (col in names(numeric_cols)) {
     # Create a bar plot to display the frequency of each unique value
     freq_table <- table(numeric_cols[[col]])
     barplot(freq_table, main = paste("Frequency of values in", col), xlab = col, ylab = "Frequency", 
-            col = "lightblue", border = "gray")
+            col = "lightblue", border = "black")
   } else {
     # Create a simple histogram for other numeric columns
-    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col)
+    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col, col = "lightblue", border = "black")
   }
 }
 
@@ -153,12 +160,19 @@ for (col in names(numeric_cols)) {
 # Boxplot for each numerical attribute
 boxplot(numeric_cols, main = "Boxplot of Numerical Attributes", las = 2)
 ```
+
+
+
+
 As we see in the boxplot the average sale price has a high range and we want to look throught this column to find the outliers.
 
 ```{r}
 boxplot(data$avg_sale_prc, main = "Boxplot of SALE_PRC", ylab = "Sale Price")
 
 ```
+
+
+
 
 ```{r}
 Q1 <- quantile(data$SPEC_FEAT_VAL, 0.25)
@@ -185,6 +199,63 @@ ggpairs(selected_data,
 
 
 ```
+```{r}
+library(ggplot2)
+
+ggplot(data, aes(x = age, y = CNTR_DIST)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) + # Add regression line
+  labs(title = "Age vs Distance to Center with Trend Line",
+       x = "Age",
+       y = "Distance to City Center") +
+  theme_minimal()
+
+
+```
+```{r}
+library(ggplot2)
+
+# Scatterplot with linear regression trend line
+ggplot(data, aes(x = TOT_LVG_AREA, y = SPEC_FEAT_VAL)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) + # Linear trend line
+  labs(title = "Total Living Area vs Special Feature Value with Trend Line",
+       x = "Total Living Area",
+       y = "Special Feature Value") +
+  theme_minimal()
+
+
+```
+```{r}
+library(ggplot2)
+
+# Scatterplot with linear regression trend line
+ggplot(data, aes(x = TOT_LVG_AREA, y = SALE_PRC)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) + # Linear trend line
+  labs(title = "Scatterplot of Total Living Area vs Sale Price",
+       x = "Total Living Area",
+       y = "Sale Price") +
+  theme_minimal()
+
+```
+```{r}
+# Convert structure_quality to a factor if it's not already
+data$structure_quality <- as.factor(data$structure_quality)
+
+# Scatterplot
+plot(data$structure_quality, data$SALE_PRC,
+     xlab = "Structure Quality Grades",
+     ylab = "Sale Price",
+     main = "Scatterplot of Structure Quality vs Sale Price",
+     pch = 19, col = rgb(0, 0, 1, alpha = 0.5))
+
+```
+
+
+
+
+
 
 ```{r}
 # Install necessary packages
@@ -234,5 +305,8 @@ df_with_zip <- df_with_zip %>% rename(ZIP_CODE = all_of(zip_code_column))
 ```{r}
 # Remove the 'geometry' column from 'df'
 df_with_zip$geometry <- NULL
-
+unique(df_with_zip$ZIP_CODE) 
 ```
+
+
+
