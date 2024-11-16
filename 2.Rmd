@@ -306,7 +306,56 @@ df_with_zip <- df_with_zip %>% rename(ZIP_CODE = all_of(zip_code_column))
 # Remove the 'geometry' column from 'df'
 df_with_zip$geometry <- NULL
 unique(df_with_zip$ZIP_CODE) 
+
+
 ```
+Preprocessing:
+First we remove the identifier from the data . It is not nessecary when we want to give the data to the model.
+Then as we saw on the plot the sale_prc has a right skewed distribution so we just get the log out of it to have a better distributin of it.
+
+```{r}
+df_with_zip <- df_with_zip %>% select(-PARCELNO)
+```
+```{r}
+df_with_zip$SALE_PRC <- log(df_with_zip$SALE_PRC)
+```
+
+```{r}
+# Plot histogram of the log-transformed SALE_PRC
+hist(df_with_zip$SALE_PRC, 
+     breaks = 30, 
+     main = "Histogram of Log-Transformed SALE_PRC", 
+     xlab = "Log(SALE_PRC)", 
+     col = "skyblue")
+
+
+```
+Now we want to scale the numerical columns . Many machin learning models work better when features are on a similar scale .
+```{r}
+numerical_cols <- c("LND_SQFOOT", "TOT_LVG_AREA", "SPEC_FEAT_VAL", "RAIL_DIST",
+                    "OCEAN_DIST", "WATER_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                    "HWY_DIST", "age", "avno60plus")
+df_with_zip[numerical_cols] <- scale(df_with_zip[numerical_cols])
+
+```
+
+
+```{r,echo=FALSE}
+install.packages("fastDummies")
+```
+For month_sold and structure_quality columns we transform them with one_hot encoding.
+```{r}
+library(fastDummies) 
+
+# Create dummy variables for 'month_sold'
+df_with_zip <- dummy_cols(df_with_zip, select_columns = "month_sold", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
+
+# Create dummy variables for 'structure_quality'
+df_with_zip <- dummy_cols(df_with_zip, select_columns = "structure_quality", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
+
+```
+
+
 
 
 
