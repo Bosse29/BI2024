@@ -167,7 +167,7 @@ boxplot(numeric_cols, main = "Boxplot of Numerical Attributes", las = 2)
 As we see in the boxplot the average sale price has a high range and we want to look throught this column to find the outliers.
 
 ```{r}
-boxplot(data$avg_sale_prc, main = "Boxplot of SALE_PRC", ylab = "Sale Price")
+boxplot(data$SALE_PRC, main = "Boxplot of SALE_PRC", ylab = "Sale Price")
 
 ```
 
@@ -190,7 +190,7 @@ We Wanted to see if there is any outlier in the data or not. We considered "avg_
 library(GGally)
 
 # Select only the specified columns
-selected_data <- data[, c("avg_sale_prc", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST")]
+selected_data <- data[, c("SALE_PRC", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST")]
 
 # Create a scatterplot matrix with reduced alpha for the points
 ggpairs(selected_data, 
