@@ -1,0 +1,312 @@
+---
+title: '2'
+author: "GhazalArzanian"
+date: "2024-11-12"
+output: html_document
+---
+
+### 2.a
+First we look at the head of the data to see how does the data look like.And also to check the variables types. As we can see all the variables are numbbers num or int.
+
+```{r}
+df <- read.csv("miami-housing.csv")
+data<-df
+#head(data)
+str(data)
+summary(data)
+
+```
+In this step we want to look that variables that have more than 0.5 absolute correlation with each other.
+```{r}
+# Compute correlations
+correlations <- cor(data, use = "complete.obs")
+
+# Find pairs with an absolute correlation greater than 0.5 and less than 1 (to exclude self-correlations)
+high_corr <- which(abs(correlations) > 0.5 & abs(correlations) < 1, arr.ind = TRUE)
+
+# Create a data frame with the filtered high correlations
+high_corr_pairs <- data.frame(
+  Column1 = rownames(correlations)[high_corr[, 1]],
+  Column2 = colnames(correlations)[high_corr[, 2]],
+  Correlation = correlations[high_corr]
+)
+
+# Remove duplicate pairs (where Column1 and Column2 are swapped)
+high_corr_pairs <- high_corr_pairs[!duplicated(t(apply(high_corr_pairs[, 1:2], 1, sort))), ]
+
+# Display the result
+print(high_corr_pairs)
+
+```
+
+Check if the Parcelno is the a unique identifier ?
+As we see there are some rows that have the same parcelno numbers.It means they are different records for the same property. So since the data is for one yearwe will consider the later month and delete the earlier months.
+```{r}
+duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+
+```
+CHECK IF ALWAYS THE LAST MONTHES HAS THE HIGHER PRICES? 
+AS we see the higher price is not always for the last month.
+```{r}
+library(dplyr)
+# Filter rows with duplicate PARCELNO values, add max_month, and check opposite flags
+result <- data %>%
+  filter(duplicated(PARCELNO) | duplicated(PARCELNO, fromLast = TRUE)) %>%
+  group_by(PARCELNO) %>%
+  arrange(PARCELNO, month_sold) %>%
+  mutate(
+    max_month = max(month_sold),                        # Add max_month as the highest MONTH_SOLD for each PARCELNO
+    is_latest_month = month_sold == max_month,          # Check if this row is for the latest month
+    is_price_higher_for_latest_month = SALE_PRC == max(SALE_PRC[is_latest_month])  # Check if SALE_PRC is highest for latest month
+  ) %>%
+  ungroup() %>%
+  filter(is_latest_month != is_price_higher_for_latest_month)  # Filter rows where flags are opposite
+
+# Display the result
+print(result)
+```
+
+FILTER THE ROW THAT HAVE SAME PARVELNO AND DIFFERENT MONTHES WITH THE LAST MONTH.
+We keep the record with the last month for the rows that have equal parcelno.
+```{r}
+# Install and load dplyr if you haven't already
+library(dplyr)
+
+# Group by parcelno and keep only the row with the maximum month_sold value
+data <- data %>%
+  group_by(PARCELNO) %>%
+  filter(month_sold == max(month_sold)) %>%
+  ungroup()
+
+```
+THE DUPLICATED ONE THAT ARE LEFT ARE THE ONE WITH THE SAME MONTH.
+```{r}
+duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+```
+FOR THE RECORDS WITH THE SAME MONTH AND THE SAME PARCELNO WE CACULATE THE AVERAGAE SALE_PRC.
+
+```{r}
+# Load dplyr
+library(dplyr)
+
+# Aggregate by PARCELNO, calculating the average SALE_PRC, and keeping the first value of other columns
+aggregated_data <- data %>%
+  group_by(PARCELNO) %>%
+  summarise(
+    SALE_PRC = mean(SALE_PRC, na.rm = TRUE),
+    across(-SALE_PRC, ~ first(.))
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+duplicate_rows <- aggregated_data[duplicated(aggregated_data$PARCELNO) | duplicated(aggregated_data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+```
+Now we have a clean data that dosent have duplicated PARCELNO.
+```{r}
+
+data<-aggregated_data
+```
+### 2.b. Statistical properties
+```{r}
+summary(data)
+```
+We check if there is any correlation between numeric values (all the vriables in this data) or not.
+```{r}
+correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
+print(correlations)
+
+```
+
+
+### 2.c.
+Missing values.
+The data is clean and we dont have any missing data.
+
+```{r}
+colSums(is.na(data))
+```
+
+Distribution of the numeric values 
+We use boxplot and histogram to look that the distribution of the varibles.
+
+```{r}
+
+# Remove the PARCELNO column if it exists
+numeric_cols <- data[sapply(data, is.numeric)]
+numeric_cols$PARCELNO <- NULL
+
+# Define the columns for which we want bar plots
+barplot_columns <- c("structure_quality", "month_sold", "avno60plus", "age")
+
+# Loop through each numeric column and plot accordingly
+for (col in names(numeric_cols)) {
+  if (col %in% barplot_columns) {
+    # Create a bar plot to display the frequency of each unique value
+    freq_table <- table(numeric_cols[[col]])
+    barplot(freq_table, main = paste("Frequency of values in", col), xlab = col, ylab = "Frequency", 
+            col = "lightblue", border = "black")
+  } else {
+    # Create a simple histogram for other numeric columns
+    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col, col = "lightblue", border = "black")
+  }
+}
+
+
+# Boxplot for each numerical attribute
+boxplot(numeric_cols, main = "Boxplot of Numerical Attributes", las = 2)
+```
+
+
+
+
+As we see in the boxplot the average sale price has a high range and we want to look throught this column to find the outliers.
+
+```{r}
+boxplot(data$avg_sale_prc, main = "Boxplot of SALE_PRC", ylab = "Sale Price")
+
+```
+
+
+
+
+```{r}
+Q1 <- quantile(data$SPEC_FEAT_VAL, 0.25)
+Q3 <- quantile(data$SPEC_FEAT_VAL, 0.75)
+IQR <- Q3 - Q1
+outliers <- data[data$SPEC_FEAT_VAL < (Q1 - 1.5 * IQR) | data$SPEC_FEAT_VAL> (Q3 + 1.5 * IQR), ]
+print(outliers)
+
+
+```
+We Wanted to see if there is any outlier in the data or not. We considered "avg_sale_prc", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST" and made the scatterplot for them as we can see there is not any specific outlier with the combined variables.
+
+```{r}
+# Load the necessary library
+library(GGally)
+
+# Select only the specified columns
+selected_data <- data[, c("avg_sale_prc", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST")]
+
+# Create a scatterplot matrix with reduced alpha for the points
+ggpairs(selected_data, 
+        title = "Scatterplot Matrix for Selected Variables")
+
+
+
+```
+```{r}
+library(ggplot2)
+
+ggplot(data, aes(x = age, y = CNTR_DIST)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) + # Add regression line
+  labs(title = "Age vs Distance to Center with Trend Line",
+       x = "Age",
+       y = "Distance to City Center") +
+  theme_minimal()
+
+
+```
+```{r}
+library(ggplot2)
+
+# Scatterplot with linear regression trend line
+ggplot(data, aes(x = TOT_LVG_AREA, y = SPEC_FEAT_VAL)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) + # Linear trend line
+  labs(title = "Total Living Area vs Special Feature Value with Trend Line",
+       x = "Total Living Area",
+       y = "Special Feature Value") +
+  theme_minimal()
+
+
+```
+```{r}
+library(ggplot2)
+
+# Scatterplot with linear regression trend line
+ggplot(data, aes(x = TOT_LVG_AREA, y = SALE_PRC)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) + # Linear trend line
+  labs(title = "Scatterplot of Total Living Area vs Sale Price",
+       x = "Total Living Area",
+       y = "Sale Price") +
+  theme_minimal()
+
+```
+```{r}
+# Convert structure_quality to a factor if it's not already
+data$structure_quality <- as.factor(data$structure_quality)
+
+# Scatterplot
+plot(data$structure_quality, data$SALE_PRC,
+     xlab = "Structure Quality Grades",
+     ylab = "Sale Price",
+     main = "Scatterplot of Structure Quality vs Sale Price",
+     pch = 19, col = rgb(0, 0, 1, alpha = 0.5))
+
+```
+
+
+
+
+
+
+```{r}
+# Install necessary packages
+install.packages(c("sf", "tigris", "dplyr"))
+
+# Load libraries
+library(sf)
+library(tigris)
+library(dplyr)
+# Use caching to speed up subsequent downloads
+options(tigris_use_cache = TRUE)
+
+# Download ZCTAs shapefile
+zctas <- zctas(cb = TRUE, year = 2016)  # Adjust the year as needed
+
+
+
+
+```
+
+```{r}
+df<-data 
+# Ensure your dataframe has numeric latitude and longitude
+df$LATITUDE <- as.numeric(df$LATITUDE)
+df$LONGITUDE <- as.numeric(df$LONGITUDE)
+
+# Remove rows with missing coordinates
+df <- df %>% filter(!is.na(LATITUDE) & !is.na(LONGITUDE))
+
+# Convert to sf object with WGS84 CRS (EPSG:4326)
+df_sf <- st_as_sf(df, coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+# Transform ZCTAs to match df_sf CRS if necessary
+zctas <- st_transform(zctas, st_crs(df_sf))
+# Perform spatial join to attach ZIP codes
+names(zctas)
+```
+```{r}
+# Set the correct ZIP code column name
+zip_code_column <- "ZCTA5CE10"  # Or "GEOID10", both contain ZIP code information
+# Perform spatial join using the correct ZIP code column
+df_with_zip <- st_join(df_sf, zctas[zip_code_column], left = TRUE)
+# Rename the ZIP code column for clarity
+df_with_zip <- df_with_zip %>% rename(ZIP_CODE = all_of(zip_code_column))
+
+
+```
+```{r}
+# Remove the 'geometry' column from 'df'
+df_with_zip$geometry <- NULL
+unique(df_with_zip$ZIP_CODE) 
+```
+
+
+
