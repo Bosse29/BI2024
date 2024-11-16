@@ -285,7 +285,6 @@ df_with_zip$SALE_PRC <- log(df_with_zip$SALE_PRC)
 ```
 
 ```{r}
-# Plot histogram of the log-transformed SALE_PRC
 hist(df_with_zip$SALE_PRC, 
      breaks = 30, 
      main = "Histogram of Log-Transformed SALE_PRC", 
@@ -312,7 +311,6 @@ For preprocessing the zipcode column we decided to make another coulmn call regi
 ```{r}
 library(dplyr)
 
-# Define regions and ZIP codes
 regions_list <- list(
   "Miami Beach" = c("33139", "33140", "33141", "33154", "33160", "33180"),
   "Hialeah Gardens" = c("33018"),
@@ -334,7 +332,6 @@ regions_list <- list(
                  "33136", "33125")
 )
 
-# Create mapping dataframe
 zip_region_df <- data.frame(ZIP_CODE = character(), Region = character(), stringsAsFactors = FALSE)
 for (region in names(regions_list)) {
   zips <- regions_list[[region]]
@@ -342,14 +339,11 @@ for (region in names(regions_list)) {
   zip_region_df <- rbind(zip_region_df, temp_df)
 }
 
-# Ensure 'ZIP_CODE' is character
 df_with_zip$ZIP_CODE <- as.character(df_with_zip$ZIP_CODE)
 zip_region_df$ZIP_CODE <- as.character(zip_region_df$ZIP_CODE)
 
-# Merge to assign regions
 df_with_zip <- merge(df_with_zip, zip_region_df, by = "ZIP_CODE", all.x = TRUE)
 
-# Assign 'Other' to missing regions
 df_with_zip$Region[is.na(df_with_zip$Region)] <- "Other"
 ```
 ```{r}
@@ -359,7 +353,7 @@ unique(df_with_zip$Region)
 ```
 
 ```{r}
-# Encode 'Region' (choose one encoding method)
+
 df_with_zip <- dummy_cols(df_with_zip, select_columns = "Region", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
 
 
