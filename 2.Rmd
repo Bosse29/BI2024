@@ -259,7 +259,6 @@ plot(data$structure_quality, data$SALE_PRC,
 
 ```{r}
 # Install necessary packages
-install.packages(c("sf", "tigris", "dplyr"))
 
 # Load libraries
 library(sf)
@@ -352,6 +351,61 @@ df_with_zip <- dummy_cols(df_with_zip, select_columns = "month_sold", remove_fir
 
 # Create dummy variables for 'structure_quality'
 df_with_zip <- dummy_cols(df_with_zip, select_columns = "structure_quality", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
+
+```
+
+```{r}
+library(dplyr)
+
+# Define regions and ZIP codes
+regions_list <- list(
+  "Miami Beach" = c("33139", "33140", "33141", "33154", "33160", "33180"),
+  "Hialeah Gardens" = c("33018"),
+  "Hialeah" = c("33010", "33012", "33013", "33014", "33015", "33016"),
+  "Opa-locka" = c("33054", "33055", "33056"),
+  "Northeast" = c("33161", "33162", "33179", "33181", "33138", "33137", "33132"),
+  "Coral Gables" = c("33146"),
+  "Coconut Grove" = c("33133"),
+  "Southwest Miami" = c("33155", "33156", "33157", "33158", "33165", "33173",
+                        "33175", "33176", "33177", "33183", "33186", "33187",
+                        "33189", "33193", "33196", "33194", "33184", "33144",
+                        "33174", "33134", "33135", "33145", "33185", "33143",
+                        "33170", "33190"),
+  "Homestead" = c("33030", "33031", "33032", "33033", "33034", "33035", "33039"),
+  "Downtown Miami" = c("33128", "33129", "33130", "33131"),
+  "Key Biscayne" = c("33149"),
+  "NW Miami" = c("33192", "33182", "33172", "33178", "33166", "33122", "33126",
+                 "33169", "33167", "33168", "33147", "33150", "33142", "33127",
+                 "33136", "33125")
+)
+
+# Create mapping dataframe
+zip_region_df <- data.frame(ZIP_CODE = character(), Region = character(), stringsAsFactors = FALSE)
+for (region in names(regions_list)) {
+  zips <- regions_list[[region]]
+  temp_df <- data.frame(ZIP_CODE = zips, Region = region, stringsAsFactors = FALSE)
+  zip_region_df <- rbind(zip_region_df, temp_df)
+}
+
+# Ensure 'ZIP_CODE' is character
+df_with_zip$ZIP_CODE <- as.character(df_with_zip$ZIP_CODE)
+zip_region_df$ZIP_CODE <- as.character(zip_region_df$ZIP_CODE)
+
+# Merge to assign regions
+df_with_zip <- merge(df_with_zip, zip_region_df, by = "ZIP_CODE", all.x = TRUE)
+
+# Assign 'Other' to missing regions
+df_with_zip$Region[is.na(df_with_zip$Region)] <- "Other"
+```
+
+```{r}
+# Encode 'Region' (choose one encoding method)
+
+# Option A: One-Hot Encoding
+df_with_zip$Region <- as.factor(df_with_zip$Region)
+region_dummies <- model.matrix(~ Region - 1, data = df_with_zip)
+df_with_zip <- cbind(df_with_zip, region_dummies)
+
 
 ```
 
