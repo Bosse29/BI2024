@@ -4,10 +4,25 @@ author: "GhazalArzanian"
 date: "2024-11-12"
 output: html_document
 ---
+First install the packages if not already done so.
+```{r}
+#install.packages("sf", "tigris", "dplyr", "ggplot2", "fastDummies")
+```
+We load the needed packages.
+```{r}
+library(sf)
+library(tigris)
+library(dplyr)
+library(ggplot2)
+library(fastDummies)
+```
 
-### Part 2
 
-First we look at the head of the data to see how does the data look like.And also to check the variables types. As we can see all the variables are numbbers num or int.
+##  Data Description Report
+
+### Attribute types and Statistical Properties
+
+First we look at the head of the data to see how the data looks like and get a first impression. We check the structure and types. As we can see all the variables are numbers num or int. In the summary we get an overview over some statistical aspects.
 
 ```{r}
 df <- read.csv("miami-housing.csv")
@@ -16,8 +31,7 @@ str(data)
 summary(data)
 
 ```
-#### Corellation
-In this step we want to look that variables that have more than 0.5 absolute correlation with each other.
+In this step we want to look at variables that have a high (more than 0.5 absolute) correlation with each other.
 ```{r}
 
 correlations <- cor(data, use = "complete.obs")
@@ -35,19 +49,103 @@ high_corr_pairs <- high_corr_pairs[!duplicated(t(apply(high_corr_pairs[, 1:2], 1
 print(high_corr_pairs)
 
 ```
-#### Removing duplicated rows
 
-Check if the Parcelno is the a unique identifier ?
-As we see there are some rows that have the same parcelno numbers.It means they are different records for the same property. So since the data is for one yearwe will consider the later month and delete the earlier months.
+### Data quality aspects and visual Exploration
+
+The data is clean and we dont have any missing data.
+
+```{r}
+colSums(is.na(data))
+```
+
+We have identified a large outleir in SPEC_FEAT_VALUE and want to inspect it.
+```{r}
+top_10_spec_feat <- data %>%
+  arrange(desc(SPEC_FEAT_VAL)) %>%
+  slice_head(n = 10)
+
+print(top_10_spec_feat)
+```
+
+We use histograms to look that the distribution of the varibles.
+
+```{r}
+numeric_cols <- data[sapply(data, is.numeric)]
+numeric_cols$PARCELNO <- NULL
+barplot_columns <- c("structure_quality", "month_sold", "avno60plus", "age")
+
+for (col in names(numeric_cols)) {
+  if (col %in% barplot_columns) {
+  
+    freq_table <- table(numeric_cols[[col]])
+    barplot(freq_table, main = paste("Frequency of values in", col), xlab = col, ylab = "Frequency", 
+            col = "lightblue", border = "black")
+  } else {
+    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col, col = "lightblue", border = "black")
+  }
+}
+```
+
+Now we further explore the relationships between variables we have identified with high correlations.
+```{r}
+ggplot(data, aes(x = TOT_LVG_AREA, y = SPEC_FEAT_VAL)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Total Living Area vs Special Feature Value with Trend Line",
+       x = "Total Living Area",
+       y = "Special Feature Value") +
+  theme_minimal()
+
+
+```
+```{r}
+ggplot(data, aes(x = TOT_LVG_AREA, y = SALE_PRC)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Scatterplot of Total Living Area vs Sale Price",
+       x = "Total Living Area",
+       y = "Sale Price") +
+  theme_minimal()
+
+```
+```{r}
+data$avno60plus <- as.factor(data$avno60plus)
+
+plot(data$avno60plus, data$SALE_PRC,
+     xlab = "Airplane noise exceeding acceptable Limit?",
+     ylab = "Sale Price",
+     main = "Boxplot of Noise dummy",
+     pch = 19, col = rgb(0, 0, 1, alpha = 0.5),
+     outline = FALSE)
+```
+
+```{r}
+data$structure_quality <- as.factor(data$structure_quality)
+
+plot(data$structure_quality, data$SALE_PRC,
+     xlab = "Structure Quality Grades",
+     ylab = "Sale Price",
+     main = "Scatterplot of Structure Quality vs Sale Price",
+     pch = 19, col = rgb(0, 0, 1, alpha = 0.5))
+
+```
+
+## Data Preparation report 
+
+### Preprocessing
+
+#### Handling Duplicates in PARCELNO
+
+We start by handling the duplicate sin the unique identifier ID PARCELNO.
+As we see there are some rows that have the same parcelno numbers. It means they are different records for the same property. Since the data is for one year only we will consider the later month and delete the earlier months, because we want to predict future data and newer entries are therefore more important.
 ```{r}
 duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
 duplicate_rows
 
 ```
-CHECK IF ALWAYS THE LAST MONTHES HAS THE HIGHER PRICES? 
-AS we see the higher price is not always for the last month.
+We check if the later month always
+As we see the higher price is not always for the last month.
 ```{r}
-library(dplyr)
 result <- data %>%
   filter(duplicated(PARCELNO) | duplicated(PARCELNO, fromLast = TRUE)) %>%
   group_by(PARCELNO) %>%
@@ -63,28 +161,22 @@ result <- data %>%
 print(result)
 ```
 
-FILTER THE ROW THAT HAVE SAME PARVELNO AND DIFFERENT MONTHES WITH THE LAST MONTH.
-We keep the record with the last month for the rows that have equal parcelno.
+We keep the record with the later month sold for properties that appear multiple times.
 ```{r}
-
-library(dplyr)
-
+data <- data %>%
   group_by(PARCELNO) %>%
   filter(month_sold == max(month_sold)) %>%
   ungroup()
 
 ```
-THE DUPLICATED ONE THAT ARE LEFT ARE THE ONE WITH THE SAME MONTH.
+We check if there are any duplicates left.
 ```{r}
 duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
 duplicate_rows
 ```
-FOR THE RECORDS WITH THE SAME MONTH AND THE SAME PARCELNO WE CACULATE THE AVERAGAE SALE_PRC.
-
+As we can see, we now only have to handle those entries with duplicate PARCELNO where the month sold is also the same.
+For these records we take the average sale price of both entries.
 ```{r}
-
-library(dplyr)
-
 aggregated_data <- data %>%
   group_by(PARCELNO) %>%
   summarise(
@@ -99,149 +191,19 @@ aggregated_data <- data %>%
 duplicate_rows <- aggregated_data[duplicated(aggregated_data$PARCELNO) | duplicated(aggregated_data$PARCELNO, fromLast = TRUE), ]
 duplicate_rows
 ```
-Now we have a clean data that dosent have duplicated PARCELNO.
+Now we have data that dosent have duplicated PARCELNO.
 ```{r}
 data<-aggregated_data
 ```
-### 2.b. Statistical properties
-```{r}
-summary(data)
-```
-We check if there is any correlation between numeric values (all the vriables in this data) or not.
-```{r}
-correlations <- cor(data[sapply(data, is.numeric)], use = "complete.obs")
-print(correlations)
 
-```
-#### Missing values
-The data is clean and we dont have any missing data.
+
+#### Mapping LATITUDE & LONGTITUDE columns to Zipcodes
 
 ```{r}
-colSums(is.na(data))
-```
-
-#### Distribution of the numeric values and plots
-We use boxplot and histogram to look that the distribution of the varibles.
-
-```{r}
-
-numeric_cols <- data[sapply(data, is.numeric)]
-numeric_cols$PARCELNO <- NULL
-barplot_columns <- c("structure_quality", "month_sold", "avno60plus", "age")
-
-for (col in names(numeric_cols)) {
-  if (col %in% barplot_columns) {
-  
-    freq_table <- table(numeric_cols[[col]])
-    barplot(freq_table, main = paste("Frequency of values in", col), xlab = col, ylab = "Frequency", 
-            col = "lightblue", border = "black")
-  } else {
-    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col, col = "lightblue", border = "black")
-  }
-}
-
-
-boxplot(numeric_cols, main = "Boxplot of Numerical Attributes", las = 2)
-```
-
-
-
-
-As we see in the boxplot the average sale price has a high range and we want to look throught this column to find the outliers.
-
-```{r}
-boxplot(data$SALE_PRC, main = "Boxplot of SALE_PRC", ylab = "Sale Price")
-
-```
-
-
-
-
-```{r}
-Q1 <- quantile(data$SPEC_FEAT_VAL, 0.25)
-Q3 <- quantile(data$SPEC_FEAT_VAL, 0.75)
-IQR <- Q3 - Q1
-outliers <- data[data$SPEC_FEAT_VAL < (Q1 - 1.5 * IQR) | data$SPEC_FEAT_VAL> (Q3 + 1.5 * IQR), ]
-print(outliers)
-
-
-```
-We Wanted to see if there is any outlier in the data or not. We considered "avg_sale_prc", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST" and made the scatterplot for them as we can see there is not any specific outlier with the combined variables.
-
-```{r}
-library(GGally)
-selected_data <- data[, c("SALE_PRC", "age", "LND_SQFOOT", "structure_quality", "CNTR_DIST")]
-ggpairs(selected_data, 
-        title = "Scatterplot Matrix for Selected Variables")
-
-
-
-```
-```{r}
-library(ggplot2)
-
-ggplot(data, aes(x = age, y = CNTR_DIST)) +
-  geom_point(color = "blue", size = 2, alpha = 0.5) +
-  geom_smooth(method = "lm", color = "red", se = FALSE) + # Add regression line
-  labs(title = "Age vs Distance to Center with Trend Line",
-       x = "Age",
-       y = "Distance to City Center") +
-  theme_minimal()
-
-
-```
-```{r}
-library(ggplot2)
-ggplot(data, aes(x = TOT_LVG_AREA, y = SPEC_FEAT_VAL)) +
-  geom_point(color = "blue", size = 2, alpha = 0.5) +
-  geom_smooth(method = "lm", color = "red", se = FALSE) +
-  labs(title = "Total Living Area vs Special Feature Value with Trend Line",
-       x = "Total Living Area",
-       y = "Special Feature Value") +
-  theme_minimal()
-
-
-```
-```{r}
-library(ggplot2)
-
-ggplot(data, aes(x = TOT_LVG_AREA, y = SALE_PRC)) +
-  geom_point(color = "blue", size = 2, alpha = 0.5) +
-  geom_smooth(method = "lm", color = "red", se = FALSE) +
-  labs(title = "Scatterplot of Total Living Area vs Sale Price",
-       x = "Total Living Area",
-       y = "Sale Price") +
-  theme_minimal()
-
-```
-```{r}
-data$structure_quality <- as.factor(data$structure_quality)
-
-plot(data$structure_quality, data$SALE_PRC,
-     xlab = "Structure Quality Grades",
-     ylab = "Sale Price",
-     main = "Scatterplot of Structure Quality vs Sale Price",
-     pch = 19, col = rgb(0, 0, 1, alpha = 0.5))
-
-```
-
-
-
-
-
-#### Turning LATITUDE & LONGTITUDE columns to zipcodes
-```{r}
-
-library(sf)
-library(tigris)
-library(dplyr)
-
 options(tigris_use_cache = TRUE)
 
-zctas <- zctas(cb = TRUE, year = 2016)  # Adjust the year as needed
-
+zctas <- zctas(cb = TRUE, year = 2016)
 ```
-
 ```{r}
 df<-data 
 df$LATITUDE <- as.numeric(df$LATITUDE)
@@ -262,55 +224,15 @@ df_with_zip <- st_join(df_sf, zctas[zip_code_column], left = TRUE)
 
 df_with_zip <- df_with_zip %>% rename(ZIP_CODE = all_of(zip_code_column))
 
-
-```
-```{r}
 df_with_zip$geometry <- NULL
+```
+```{r}
 unique(df_with_zip$ZIP_CODE) 
-
-
-
 ```
-### Part 3
 
-####Preprocessing:
-First we remove the identifier from the data . It is not nessecary when we want to give the data to the model.
-Then as we saw on the plot the sale_prc has a right skewed distribution so we just get the log out of it to have a better distributin of it.
+#### Mapping Zipcodes to more general Areas
 
 ```{r}
-df_with_zip <- df_with_zip %>% select(-PARCELNO)
-```
-```{r}
-df_with_zip$SALE_PRC <- log(df_with_zip$SALE_PRC)
-```
-
-```{r}
-hist(df_with_zip$SALE_PRC, 
-     breaks = 30, 
-     main = "Histogram of Log-Transformed SALE_PRC", 
-     xlab = "Log(SALE_PRC)", 
-     col = "skyblue")
-
-
-```
-Now we want to scale the numerical columns . Many machin learning models work better when features are on a similar scale .
-```{r}
-numerical_cols <- c("LND_SQFOOT", "TOT_LVG_AREA", "SPEC_FEAT_VAL", "RAIL_DIST",
-                    "OCEAN_DIST", "WATER_DIST", "CNTR_DIST", "SUBCNTR_DI",
-                    "HWY_DIST", "age", "avno60plus")
-df_with_zip[numerical_cols] <- scale(df_with_zip[numerical_cols])
-
-```
-
-
-```{r,echo=FALSE}
-install.packages("fastDummies")
-```
-For preprocessing the zipcode column we decided to make another coulmn call region which is the district of the zipcode.With that we will have 13 distingushed district which is easier to use one-hot encoding on it.
-
-```{r}
-library(dplyr)
-
 regions_list <- list(
   "Miami Beach" = c("33139", "33140", "33141", "33154", "33160", "33180"),
   "Hialeah Gardens" = c("33018"),
@@ -346,22 +268,82 @@ df_with_zip <- merge(df_with_zip, zip_region_df, by = "ZIP_CODE", all.x = TRUE)
 
 df_with_zip$Region[is.na(df_with_zip$Region)] <- "Other"
 ```
+
+#### Removing unneccessary columns
+
+First we remove the identifier from the data . It is not nessecary when we want to give the data to the model.
 ```{r}
-unique(df_with_zip$Region) 
+df_with_zip <- df_with_zip %>% select(-PARCELNO)
+```
+
+#### Log Transform skewed distributed variables
+
+As we notices before quite a few variables have very skewed distributions. We fix that by log-transforming them. Since we have mayn variables that are simialr in their sementics, e.g. distance to some POI, it nmakes sense to scale all of them, even if some do not have very skewed original distributions.
+```{r}
+variables_to_log_transform <- c("WATER_DIST", "TOT_LVG_AREA", "LND_SQFOOT", "SPEC_FEAT_VAL",
+                                "RAIL_DIST", "OCEAN_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                                "HWY_DIST", "age","SALE_PRC")
 
 
+for (var in variables_to_log_transform) {
+  zeros <- sum(df_with_zip[[var]] == 0, na.rm = TRUE)
+  negatives <- sum(df_with_zip[[var]] < 0, na.rm = TRUE)
+  cat("Variable:", var, "- Zeros:", zeros, "- Negatives:", negatives, "\n")
+}
 ```
 
 ```{r}
+columns_to_transform <- c("WATER_DIST", "TOT_LVG_AREA", "LND_SQFOOT", "SPEC_FEAT_VAL",
+                          "RAIL_DIST", "OCEAN_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                          "HWY_DIST", "age","SALE_PRC")
 
+for (col in columns_to_transform) {
+
+  if (any(df_with_zip[[col]] <= 0, na.rm = TRUE)) {
+   
+    df_with_zip[[col]] <- log1p(df_with_zip[[col]]) #for the columns with 0 values we use log(x+1)
+  } else {
+   
+    df_with_zip[[col]] <- log(df_with_zip[[col]])
+  }
+}
+head(df_with_zip)
+```
+We plot the distribution histograms again to see if it worked.
+```{r}
+for (col in columns_to_transform) {
+  hist(df_with_zip[[col]], 
+       breaks = 30, 
+       main = paste("Histogram of Log-Transformed", col), 
+       xlab = paste("Log(", col, ")", sep = ""), 
+       col = "skyblue")
+}
+```
+
+#### Scaling numerical Columns
+
+Now we want to scale the numerical columns. Many machine learning models work better when features are on a similar scale. Since many of R's functions already to scaling internally, we wouldn't actually need to do this step. We do it here as a demonstration how to, but continue with the unscaled data.
+```{r}
+scaled_data <- df_with_zip
+str(scaled_data)
+
+numerical_cols <- c("LND_SQFOOT", "TOT_LVG_AREA", "SPEC_FEAT_VAL", "RAIL_DIST",
+                    "OCEAN_DIST", "WATER_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                    "HWY_DIST", "age")
+scaled_data[numerical_cols] <- scale(scaled_data[numerical_cols])
+
+```
+
+#### Encoding categorical columns
+
+We now need to encode categorical columns since many ML methods cannot use them. The noise dummy is already encoded and the structure quality grade is also ordinal on an integer scale, which models can work with. Therefore we only need to encode the mapped Regions by using One-Hot encoding.
+```{r}
 df_with_zip <- dummy_cols(df_with_zip, select_columns = "Region", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
-
-
 ```
 
-
+Now we have our final data.
 ```{r}
-data<-df_with_zip
+data_clean <- df_with_zip
 ```
 
 
