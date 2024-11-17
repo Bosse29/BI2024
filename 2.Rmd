@@ -1,6 +1,6 @@
 ---
 title: '2'
-author: "GhazalArzanian"
+author: "GhazalArzanian, Bosse Behrens"
 date: "2024-11-12"
 output: html_document
 ---
