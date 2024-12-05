@@ -344,7 +344,69 @@ df_with_zip <- dummy_cols(df_with_zip, select_columns = "Region", remove_first_d
 Now we have our final data.
 ```{r}
 data_clean <- df_with_zip
+data_clean <- data_clean %>% select(-ZIP_CODE)
 ```
+
+## 4
+
+```{r}
+set.seed(1234)
+n <- nrow(data_clean)
+train_valid <- sample(1:n, round((0.8) * n))
+test<-(1:n)[-train_valid]
+
+n_tv <- length(train_valid)
+train <- sample(1:n_tv, round((0.8) * n_tv))
+valid <- (1:n_tv)[-train]
+```
+
+```{r}
+model_lm <- lm(SALE_PRC ~., data = data_clean, subset = train)
+summary(model_lm)
+```
+
+```{r}
+valid_pred <- predict(model_lm, newdata=data_clean[valid,])
+
+valid_y <- data_clean[valid,"SALE_PRC"]
+
+plot(valid_y, valid_pred)
+abline(0, 1, col = "red", lwd = 2)
+
+n_valid <- length(valid)
+
+RMSE_valid <- sqrt((1/n_valid)*sum((valid_y - valid_pred)^2))
+print(RMSE_valid)
+```
+
+
+```{r}
+library(glmnet)
+model_ridge <- glmnet(as.matrix(data_clean[train,-1]),data_clean[train,1],alpha=0)
+```
+```{r}
+plot(model_ridge, xvar="lambda")
+```
+
+```{r}
+ridge_cv <- cv.glmnet(as.matrix(data_clean[train,-1]),data_clean[train,1],alpha=0)
+```
+
+```{r}
+plot(ridge_cv)
+```
+```{r}
+valid_pred_ridge <- predict(ridge_cv,newx=as.matrix(data_clean[valid,-1]),s="lambda.1se")
+
+plot(valid_y, valid_pred_ridge)
+abline(0, 1, col = "red", lwd = 2)
+
+n_valid <- length(valid)
+
+RMSE_valid <- sqrt((1/n_valid)*sum((valid_y - valid_pred_ridge)^2))
+print(RMSE_valid)
+```
+
 
 
 
