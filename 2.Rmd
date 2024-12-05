@@ -407,8 +407,79 @@ RMSE_valid <- sqrt((1/n_valid)*sum((valid_y - valid_pred_ridge)^2))
 print(RMSE_valid)
 ```
 
+```{r}
+library(glmnet)
+model_lasso <- glmnet(as.matrix(data_clean[train,-1]),data_clean[train,1],alpha=1)
+```
+```{r}
+plot(model_lasso, xvar="lambda")
+```
+
+```{r}
+lasso_cv <- cv.glmnet(as.matrix(data_clean[train,-1]),data_clean[train,1],alpha=1)
+```
+
+```{r}
+plot(lasso_cv)
+```
+```{r}
+valid_pred_lasso <- predict(lasso_cv,newx=as.matrix(data_clean[valid,-1]),s="lambda.1se")
 
 
 
+
+plot(exp(valid_y), exp(pred_exp))
+abline(0, 1, col = "red", lwd = 2)
+
+n_valid <- length(valid)
+
+RMSE_valid <- sqrt(sum((exp(valid_y) - exp(pred_exp))^2)*1/n_valid)
+print(RMSE_valid)
+```
+
+
+```{r}
+str(valid_pred_lasso)
+str(s2)
+```
+
+
+```{r}
+data_exp <- data_clean
+data_exp[,"SALE_PRC"] <- exp(data_exp[,"SALE_PRC"])
+
+
+```
+
+```{r}
+library(glmnet)
+lasso_cv <- cv.glmnet(as.matrix(data_exp[train,-1]),data_exp[train,1],alpha=1)
+```
+
+```{r}
+plot(lasso_cv)
+```
+```{r}
+valid_pred_lasso <- predict(lasso_cv,newx=as.matrix(data_exp[valid,-1]),s="lambda.1se")
+
+
+valid_y_exp <- data_exp[valid,1]
+
+plot(valid_y_exp, valid_pred_lasso)
+abline(0, 1, col = "red", lwd = 2)
+
+n_valid <- length(valid)
+
+RMSE_valid <- sqrt(sum((valid_y_exp - valid_pred_lasso)^2)*1/n_valid)
+print(RMSE_valid)
+```
+```{r}
+model_log <- glm(SALE_PRC~.,data=data_exp,subset=train)
+
+log_pred <- predict(model_log,newdata=data_exp[valid,])
+
+plot(valid_y_exp,log_pred)
+abline(0, 1, col = "red", lwd = 2)
+```
 
 
