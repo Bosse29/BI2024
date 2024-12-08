@@ -234,22 +234,22 @@ unique(df_with_zip$ZIP_CODE)
 
 ```{r}
 regions_list <- list(
-  "Miami Beach" = c("33139", "33140", "33141", "33154", "33160", "33180"),
-  "Hialeah Gardens" = c("33018"),
+  "Miami_Beach" = c("33139", "33140", "33141", "33154", "33160", "33180"),
+  "Hialeah_Gardens" = c("33018"),
   "Hialeah" = c("33010", "33012", "33013", "33014", "33015", "33016"),
-  "Opa-locka" = c("33054", "33055", "33056"),
+  "Opa_locka" = c("33054", "33055", "33056"),
   "Northeast" = c("33161", "33162", "33179", "33181", "33138", "33137", "33132"),
-  "Coral Gables" = c("33146"),
-  "Coconut Grove" = c("33133"),
-  "Southwest Miami" = c("33155", "33156", "33157", "33158", "33165", "33173",
+  "Coral_Gables" = c("33146"),
+  "Coconut_Grove" = c("33133"),
+  "Southwest_Miami" = c("33155", "33156", "33157", "33158", "33165", "33173",
                         "33175", "33176", "33177", "33183", "33186", "33187",
                         "33189", "33193", "33196", "33194", "33184", "33144",
                         "33174", "33134", "33135", "33145", "33185", "33143",
                         "33170", "33190"),
   "Homestead" = c("33030", "33031", "33032", "33033", "33034", "33035", "33039"),
-  "Downtown Miami" = c("33128", "33129", "33130", "33131"),
-  "Key Biscayne" = c("33149"),
-  "NW Miami" = c("33192", "33182", "33172", "33178", "33166", "33122", "33126",
+  "Downtown_Miami" = c("33128", "33129", "33130", "33131"),
+  "Key_Biscayne" = c("33149"),
+  "NW_Miami" = c("33192", "33182", "33172", "33178", "33166", "33122", "33126",
                  "33169", "33167", "33168", "33147", "33150", "33142", "33127",
                  "33136", "33125")
 )
@@ -273,7 +273,8 @@ df_with_zip$Region[is.na(df_with_zip$Region)] <- "Other"
 
 First we remove the identifier from the data . It is not nessecary when we want to give the data to the model.
 ```{r}
-df_with_zip <- df_with_zip %>% select(-PARCELNO)
+library(dplyr)
+df_with_zip <- df_with_zip %>% dplyr::select(-PARCELNO)
 ```
 
 #### Log Transform skewed distributed variables
@@ -318,6 +319,8 @@ for (col in columns_to_transform) {
        xlab = paste("Log(", col, ")", sep = ""), 
        col = "skyblue")
 }
+
+new_data_dummy <- df_with_zip
 ```
 
 #### Scaling numerical Columns
@@ -344,7 +347,9 @@ df_with_zip <- dummy_cols(df_with_zip, select_columns = "Region", remove_first_d
 Now we have our final data.
 ```{r}
 data_clean <- df_with_zip
-data_clean <- data_clean %>% select(-ZIP_CODE)
+data_clean <- data_clean %>% dplyr::select(-ZIP_CODE)
+new_data_dummy <- new_data_dummy %>% dplyr::select(-ZIP_CODE)
+new_data_dummy$SALE_PRC <- exp(new_data_dummy$SALE_PRC)
 ```
 
 ## 4
@@ -366,9 +371,20 @@ summary(model_lm)
 ```
 
 ```{r}
-valid_pred <- predict(model_lm, newdata=data_clean[valid,])
+resid <- exp(residuals(model_lm))
+n_train <- length(train)
 
-valid_y <- data_clean[valid,"SALE_PRC"]
+S <- (1/n_train)*sum(resid)
+
+valid_pred <- exp((predict(model_lm, newdata=data_clean[valid,])))*S
+
+valid_y <- exp(data_clean[valid,"SALE_PRC"])
+```
+
+
+
+```{r}
+
 
 plot(valid_y, valid_pred)
 abline(0, 1, col = "red", lwd = 2)
@@ -398,12 +414,12 @@ plot(ridge_cv)
 ```{r}
 valid_pred_ridge <- predict(ridge_cv,newx=as.matrix(data_clean[valid,-1]),s="lambda.1se")
 
-plot(valid_y, valid_pred_ridge)
+plot(valid_y, exp(valid_pred_ridge))
 abline(0, 1, col = "red", lwd = 2)
 
 n_valid <- length(valid)
 
-RMSE_valid <- sqrt((1/n_valid)*sum((valid_y - valid_pred_ridge)^2))
+RMSE_valid <- sqrt((1/n_valid)*sum((valid_y - exp(valid_pred_ridge))^2))
 print(RMSE_valid)
 ```
 
@@ -452,6 +468,39 @@ data_exp[,"SALE_PRC"] <- exp(data_exp[,"SALE_PRC"])
 ```
 
 ```{r}
+model_lm_exp <- lm(SALE_PRC~.,data=data_exp,subset = train)
+```
+```{r}
+library(MASS)
+
+bc <- boxcox(model_lm_exp)
+
+lambda_opt <- bc$x[which.max(bc$y)]
+
+lambda_opt
+y_transformed <- (data_exp$SALE_PRC^lambda_opt - 1)/lambda_opt
+
+lm_box <- lm(y_transformed~.,data=data_exp[,-1],subset = train)
+
+pred_trans <- predict(lm_box, newdata = data_exp[valid, -1])
+
+pred_original <- ((pred_trans * lambda_opt) + 1)^(1 / lambda_opt)
+
+plot(data_exp[valid,]$SALE_PRC, pred_original)
+abline(0, 1, col = "red", lwd = 2)
+
+rmse <- sqrt(mean((data_exp[valid,]$SALE_PRC - pred_original)^2))
+rmse
+```
+
+
+
+
+
+
+
+
+```{r}
 library(glmnet)
 lasso_cv <- cv.glmnet(as.matrix(data_exp[train,-1]),data_exp[train,1],alpha=1)
 ```
@@ -482,4 +531,115 @@ plot(valid_y_exp,log_pred)
 abline(0, 1, col = "red", lwd = 2)
 ```
 
+
+```{r}
+library(randomForest)
+
+rf_model <- randomForest(SALE_PRC ~ ., data = data_exp[train,], ntree = 100)
+pred_rf <- predict(rf_model, newdata = data_exp[valid,])
+
+plot(data_exp$SALE_PRC[valid], pred_rf)
+abline(0,1,col="red")
+
+rmse <- sqrt(mean((data_exp$SALE_PRC[valid] - pred_rf)^2))
+rmse
+```
+
+
+```{r}
+library(quantregForest)
+
+data_exp_train <- data_exp[train,-1]
+data_exp_valid <- data_exp[valid,-1]
+sale_exp_train <- data_exp[train,1]
+
+qrf_model <- quantregForest(y = sale_exp_train, x = data_exp_train, ntree = 500)
+pred_med <- predict(qrf_model, newdata = data_exp_valid, what = 0.5)
+
+plot(data_exp$SALE_PRC[valid], pred_med)
+abline(0,1,col="red")
+```
+
+```{r}
+library(xgboost)
+
+x_train <- model.matrix(~ . - SALE_PRC, data = data_exp[train, ])
+x_valid <- model.matrix(~ . - SALE_PRC, data = data_exp[valid, ])
+
+y_train <- data_exp$SALE_PRC[train]
+y_valid <- data_exp$SALE_PRC[valid]
+
+dtrain <- xgb.DMatrix(data = x_train, label = y_train)
+dvalid <- xgb.DMatrix(data = x_valid, label = y_valid)
+
+params <- list(
+  objective = "reg:squarederror",  # for regression
+  eta = 0.1,                       # learning rate
+  max_depth = 6,                   # depth of each tree
+  subsample = 0.8,                 # subsample ratio of the training set
+  colsample_bytree = 0.8           # subsample ratio of columns when constructing each tree
+)
+
+set.seed(123)
+xgb_model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = 500,              # number of boosting rounds (trees)
+  watchlist = list(train = dtrain, test = dvalid),
+  early_stopping_rounds = 50, # stop if no improvement for 50 rounds
+  print_every_n = 50
+)
+
+pred_xgb <- predict(xgb_model, newdata = dvalid)
+
+plot(y_valid, pred_xgb)
+abline(0,1,col="red")
+
+rmse <- sqrt(mean((y_valid - pred_xgb)^2))
+rmse
+```
+
+```{r}
+threshold <- 700000
+new_data_dummy$high_end_flag <- ifelse(new_data_dummy$SALE_PRC > threshold, "High", "Not_High")
+new_data_dummy$high_end_flag <- factor(new_data_dummy$high_end_flag)
+
+# First, train a classifier to predict if a home is high-end or not
+classifier <- randomForest(high_end_flag ~ . - SALE_PRC, data = new_data_dummy[train,])
+
+# Predict on valid set
+high_end_pred <- predict(classifier, newdata = new_data_dummy[valid,], type = "response")
+
+valid_high <- new_data_dummy[valid,][high_end_pred == "High", ]
+valid_not_high <- new_data_dummy[valid,][high_end_pred == "Not_High", ]
+
+high_price_df <- subset(new_data_dummy[train, ], SALE_PRC > threshold)
+
+# Train separate regression models
+# Model for not-high properties
+rf_not_high <- randomForest(SALE_PRC ~ ., data = subset(new_data_dummy[train,], SALE_PRC <= threshold))
+
+str(high_price_df)
+
+hallo <- high_price_df[,-12]
+hallo <- hallo[,-15]
+# Regression for high
+rf_high <- lm(SALE_PRC ~ ., data = hallo)
+
+pred_not_high <- predict(rf_not_high, newdata = valid_not_high)
+pred_high <- predict(rf_high, newdata = valid_high)
+
+# Combine predictions
+pred_combined <- numeric(length(valid))
+pred_combined[high_end_pred == "Not_High"] <- pred_not_high
+pred_combined[high_end_pred == "High"] <- pred_high
+```
+```{r}
+plot(data_exp$SALE_PRC[valid], pred_combined)
+abline(0,1,col="red")
+
+rmse <- sqrt(mean((data_exp$SALE_PRC[valid] - pred_combined)^2))
+rmse
+```
+```
 
