@@ -279,7 +279,7 @@ df_with_zip <- df_with_zip %>% dplyr::select(-PARCELNO)
 
 #### Log Transform skewed distributed variables
 
-As we notices before quite a few variables have very skewed distributions. We fix that by log-transforming them. Since we have mayn variables that are simialr in their sementics, e.g. distance to some POI, it nmakes sense to scale all of them, even if some do not have very skewed original distributions.
+As we notices before quite a few variables have very skewed distributions. We fix that by log-transforming them. Since we have mayn variables that are simialr in their sementics, e.g. distance to some POI, it nmakes sense to scale all of them, even if some do not have very skewed original distributions. The target variable is also skewed, but we will not transform it now, but only after we did the stratified train/valid/test split to keep the correct distribution in the target.
 ```{r}
 variables_to_log_transform <- c("WATER_DIST", "TOT_LVG_AREA", "LND_SQFOOT", "SPEC_FEAT_VAL",
                                 "RAIL_DIST", "OCEAN_DIST", "CNTR_DIST", "SUBCNTR_DI",
@@ -361,13 +361,11 @@ data_clean <- data_clean[data_clean$SALE_PRC < 8000000, ]
 
 constant_cols <- sapply(data_clean, function(col) length(unique(col)) == 1)
 
-# Exclude constant columns
 data_clean <- data_clean[, !constant_cols]
 ```
 
 
 ## 4
-
 
 ```{r}
 library(caret)
@@ -399,11 +397,8 @@ library(ranger)
 rf_model <- ranger(
   formula = log_SALE_PRC ~ .,     # Formula
   data = train,               # Training data
-  num.trees = 500,            # Number of trees
-  mtry = NULL, # Number of features per split
-  min.node.size = 5,          # Minimum size of terminal nodes
   max.depth = 25,
-  case.weights = weights  # Maximum tree depth
+  case.weights = weights
 )
 ```
 
