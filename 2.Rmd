@@ -367,6 +367,7 @@ data_clean <- data_clean[, !constant_cols]
 
 ## 4
 
+First we set up the data partition into the train/valid/test splits and log-transform the target variable.
 ```{r}
 library(caret)
 
@@ -379,43 +380,167 @@ test <- data_clean[-train_valid_idx, ]
 train_idx <- createDataPartition(train_valid$SALE_PRC, p = 0.7, list = FALSE)
 train <- train_valid[train_idx, ]
 valid <- train_valid[-train_idx, ]
+
+#train$log_SALE_PRC <- log(train$SALE_PRC)
+#train <- train %>% dplyr::select(-SALE_PRC)
 ```
-
+We write a function to train the model since we will reuse it quite some times.
 ```{r}
-weights <- train$SALE_PRC / max(train$SALE_PRC)
+model_results <- function(train, valid, maxdepths = NULL, weights = NULL){
+
+  set.seed(12345)
+  library(ranger)
+  
+  rf_model <- ranger(
+    formula = SALE_PRC ~ .,     # Formula
+    data = train,
+    max.depth = maxdepths,# Training data
+    case.weights = weights,
+    importance = "permutation"
+  )
+  
+  model <- rf_model
+  
+  rf_pred <- predict(rf_model, data = valid)$predictions
+  
+  
+  residual_plot <- plot(valid$SALE_PRC, rf_pred,
+                        xlab = "Actual Sale Price", 
+                        ylab = "Predicted Sale Price")
+  abline(0,1,col = "red", lwd = 2)
+  
+
+  rmse_result <- sqrt(mean((rf_pred - valid$SALE_PRC)^2))
+  
+  ss_total <- sum((valid$SALE_PRC - mean(valid$SALE_PRC))^2)
+  ss_residual <- sum((valid$SALE_PRC - rf_pred)^2)
+  r_squared <- 1 - (ss_residual / ss_total)
+  
+  n <- nrow(valid)             
+  p <- ncol(train) - 1        
+  adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
+  
+  # Output results
+  cat("RMSE:", rmse_result, "\n")
+  cat("R-squared:", r_squared, "\n")
+  cat("Adjusted R-squared:", adjusted_r_squared, "\n")
+  
+  feature_importance <- rf_model$variable.importance
+  
+
+  return(list(
+    model = model,
+    feature_importance = feature_importance
+    ))
+}
 ```
-
-
+First test is training the model on all default values for the parameters in the Random Forest Regression and get RMSE and the residual plot for the predicitons of the validation data.
 ```{r}
-train$log_SALE_PRC <- log(train$SALE_PRC)
+first_test <- model_results(train, valid)
 ```
-
-
+As expected the model is well fitted to the bulk of the data that is lwoer to mid range sale prices for homes but struggles with the higher priced luxury homes that are rarer and more complex cases. We therefore give these observations more weights by assigning each observations the weight "price of home/max priced home".
 ```{r}
-library(ranger)
+weights <- (train$SALE_PRC / max(train$SALE_PRC))^(1)
+```
+We now train th emodel again with the waits and the rest default values.
+```{r}
+weight_test <- model_results(train, valid, weights= weights)
+```
+Now we can set up the hyper-parameter tuning to obtain the optimal the maximum tree depth. First we define a rmse function.
+```{r}
+rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2))
+}
+```
+Now we set up the parameter grid to be tested and implement the tuning.
+```{r}
+set.seed(12345)
+max_depth_values <- seq(1, 37, by = 3)
 
-rf_model <- ranger(
-  formula = log_SALE_PRC ~ .,     # Formula
-  data = train,               # Training data
-  max.depth = 25,
-  case.weights = weights
+results <- data.frame(
+  max_depth = numeric(),
+  rmse = numeric()
+)
+
+
+for (depth in max_depth_values) {
+  set.seed(1234)
+  # Train the ranger model with the current max.depth
+  rf_model <- ranger(
+    formula = SALE_PRC ~ .,     # Formula
+    data = train,                  # Training data
+    max.depth = depth, # Current max.depth value
+    case.weights = weights # Case weights
+  )
+  
+  # Predict on the validation dataset
+  rf_pred <- predict(rf_model, data = valid)$predictions
+  
+  # Calculate RMSE using the custom function
+  actual_values <- valid$SALE_PRC  # Assuming log-transformed target
+  current_rmse <- rmse(actual = actual_values, predicted = rf_pred)
+  
+  ss_total <- sum((actual_values - mean(actual_values))^2)
+  ss_residual <- sum((actual_values - rf_pred)^2)
+  r_squared <- 1 - (ss_residual / ss_total)
+  
+  n <- nrow(valid)                # Number of observations
+  p <- ncol(train) - 1            # Number of predictors (excluding target)
+  adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
+  
+  # Store the results
+  results <- rbind(results, data.frame(max_depth = depth, rmse = current_rmse, r_squared = r_squared,
+      adjusted_r_squared = adjusted_r_squared))
+}
+
+```
+Printing the results.
+```{r}
+print(results)
+```
+Plotting the max depths vs the RMSE.
+```{r}
+plot(
+  results$max_depth, results$rmse, 
+  type = "b", 
+  col = "blue", 
+  xlab = "Max Depth", 
+  ylab = "RMSE", 
+  main = "Hyperparameter Tuning: Max Depth vs RMSE"
 )
 ```
 
+
+
+
 ```{r}
-rf_pred <- exp(predict(rf_model, data = valid)$predictions)
-
-
-plot(valid$SALE_PRC, rf_pred)
-abline(0,1,col = "red", lwd = 2)
-
-# Calculate RMSE (Root Mean Squared Error)
-rmse <- sqrt(mean((rf_pred - valid$SALE_PRC)^2))
-cat("RMSE:", rmse, "\n")
+testing_1 <- model_results(train, valid, 1, weights)
 ```
 
 ```{r}
-rf_pred <- exp(predict(rf_model, data = test)$predictions)
+testing_25 <- model_results(train, valid, 25, weights)
+
+importance <- testing_25$feature_importance
+print(importance)
+```
+
+```{r}
+testing_37 <- model_results(train, valid, 37, weights)
+```
+
+
+## 5
+
+```{r}
+model_final <- testing_25$model
+```
+
+
+
+
+
+```{r}
+rf_pred <- predict(model_final, data = test)$predictions
 
 
 plot(test$SALE_PRC, rf_pred)

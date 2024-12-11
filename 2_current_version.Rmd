@@ -1,0 +1,555 @@
+---
+title: '2'
+author: "GhazalArzanian, Bosse Behrens"
+date: "2024-11-12"
+output: html_document
+---
+First install the packages if not already done so.
+```{r}
+#install.packages("sf", "tigris", "dplyr", "ggplot2", "fastDummies")
+```
+We load the needed packages.
+```{r}
+library(sf)
+library(tigris)
+library(dplyr)
+library(ggplot2)
+library(fastDummies)
+```
+
+
+##  Data Description Report
+
+### Attribute types and Statistical Properties
+
+First we look at the head of the data to see how the data looks like and get a first impression. We check the structure and types. As we can see all the variables are numbers num or int. In the summary we get an overview over some statistical aspects.
+
+```{r}
+df <- read.csv("miami-housing.csv")
+data<-df
+str(data)
+summary(data)
+
+```
+In this step we want to look at variables that have a high (more than 0.5 absolute) correlation with each other.
+```{r}
+
+correlations <- cor(data, use = "complete.obs")
+
+high_corr <- which(abs(correlations) > 0.5 & abs(correlations) < 1, arr.ind = TRUE)
+
+high_corr_pairs <- data.frame(
+  Column1 = rownames(correlations)[high_corr[, 1]],
+  Column2 = colnames(correlations)[high_corr[, 2]],
+  Correlation = correlations[high_corr]
+)
+
+high_corr_pairs <- high_corr_pairs[!duplicated(t(apply(high_corr_pairs[, 1:2], 1, sort))), ]
+
+print(high_corr_pairs)
+
+```
+
+### Data quality aspects and visual Exploration
+
+The data is clean and we dont have any missing data.
+
+```{r}
+colSums(is.na(data))
+```
+
+We have identified a large outleir in SPEC_FEAT_VALUE and want to inspect it.
+```{r}
+top_10_spec_feat <- data %>%
+  arrange(desc(SPEC_FEAT_VAL)) %>%
+  slice_head(n = 10)
+
+print(top_10_spec_feat)
+```
+
+We use histograms to look that the distribution of the varibles.
+
+```{r}
+numeric_cols <- data[sapply(data, is.numeric)]
+numeric_cols$PARCELNO <- NULL
+barplot_columns <- c("structure_quality", "month_sold", "avno60plus", "age")
+
+for (col in names(numeric_cols)) {
+  if (col %in% barplot_columns) {
+  
+    freq_table <- table(numeric_cols[[col]])
+    barplot(freq_table, main = paste("Frequency of values in", col), xlab = col, ylab = "Frequency", 
+            col = "lightblue", border = "black")
+  } else {
+    hist(numeric_cols[[col]], main = paste("Histogram of", col), xlab = col, col = "lightblue", border = "black")
+  }
+}
+```
+
+Now we further explore the relationships between variables we have identified with high correlations.
+```{r}
+ggplot(data, aes(x = TOT_LVG_AREA, y = SPEC_FEAT_VAL)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Total Living Area vs Special Feature Value with Trend Line",
+       x = "Total Living Area",
+       y = "Special Feature Value") +
+  theme_minimal()
+
+
+```
+```{r}
+ggplot(data, aes(x = TOT_LVG_AREA, y = SALE_PRC)) +
+  geom_point(color = "blue", size = 2, alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Scatterplot of Total Living Area vs Sale Price",
+       x = "Total Living Area",
+       y = "Sale Price") +
+  theme_minimal()
+
+```
+```{r}
+data$avno60plus <- as.factor(data$avno60plus)
+
+plot(data$avno60plus, data$SALE_PRC,
+     xlab = "Airplane noise exceeding acceptable Limit?",
+     ylab = "Sale Price",
+     main = "Boxplot of Noise dummy",
+     pch = 19, col = rgb(0, 0, 1, alpha = 0.5),
+     outline = FALSE)
+```
+
+```{r}
+data$structure_quality <- as.factor(data$structure_quality)
+
+plot(data$structure_quality, data$SALE_PRC,
+     xlab = "Structure Quality Grades",
+     ylab = "Sale Price",
+     main = "Scatterplot of Structure Quality vs Sale Price",
+     pch = 19, col = rgb(0, 0, 1, alpha = 0.5))
+
+```
+
+## Data Preparation report 
+
+### Preprocessing
+
+#### Handling Duplicates in PARCELNO
+
+We start by handling the duplicate sin the unique identifier ID PARCELNO.
+As we see there are some rows that have the same parcelno numbers. It means they are different records for the same property. Since the data is for one year only we will consider the later month and delete the earlier months, because we want to predict future data and newer entries are therefore more important.
+```{r}
+duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+
+```
+We check if the later month always
+As we see the higher price is not always for the last month.
+```{r}
+result <- data %>%
+  filter(duplicated(PARCELNO) | duplicated(PARCELNO, fromLast = TRUE)) %>%
+  group_by(PARCELNO) %>%
+  arrange(PARCELNO, month_sold) %>%
+  mutate(
+    max_month = max(month_sold),                    
+    is_latest_month = month_sold == max_month,         
+    is_price_higher_for_latest_month = SALE_PRC == max(SALE_PRC[is_latest_month]) 
+  ) %>%
+  ungroup() %>%
+  filter(is_latest_month != is_price_higher_for_latest_month) 
+
+print(result)
+```
+
+We keep the record with the later month sold for properties that appear multiple times.
+```{r}
+data <- data %>%
+  group_by(PARCELNO) %>%
+  filter(month_sold == max(month_sold)) %>%
+  ungroup()
+
+```
+We check if there are any duplicates left.
+```{r}
+duplicate_rows <- data[duplicated(data$PARCELNO) | duplicated(data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+```
+As we can see, we now only have to handle those entries with duplicate PARCELNO where the month sold is also the same.
+For these records we take the average sale price of both entries.
+```{r}
+aggregated_data <- data %>%
+  group_by(PARCELNO) %>%
+  summarise(
+    SALE_PRC = mean(SALE_PRC, na.rm = TRUE),
+    across(-SALE_PRC, ~ first(.))
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+duplicate_rows <- aggregated_data[duplicated(aggregated_data$PARCELNO) | duplicated(aggregated_data$PARCELNO, fromLast = TRUE), ]
+duplicate_rows
+```
+Now we have data that dosent have duplicated PARCELNO.
+```{r}
+data<-aggregated_data
+```
+
+
+#### Mapping LATITUDE & LONGTITUDE columns to Zipcodes
+
+```{r}
+options(tigris_use_cache = TRUE)
+
+zctas <- zctas(cb = TRUE, year = 2016)
+```
+```{r}
+df<-data 
+df$LATITUDE <- as.numeric(df$LATITUDE)
+df$LONGITUDE <- as.numeric(df$LONGITUDE)
+
+df <- df %>% filter(!is.na(LATITUDE) & !is.na(LONGITUDE))
+
+df_sf <- st_as_sf(df, coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+
+zctas <- st_transform(zctas, st_crs(df_sf))
+names(zctas)
+```
+```{r}
+
+zip_code_column <- "ZCTA5CE10" 
+
+df_with_zip <- st_join(df_sf, zctas[zip_code_column], left = TRUE)
+
+df_with_zip <- df_with_zip %>% rename(ZIP_CODE = all_of(zip_code_column))
+
+df_with_zip$geometry <- NULL
+```
+```{r}
+unique(df_with_zip$ZIP_CODE) 
+```
+
+#### Mapping Zipcodes to more general Areas
+
+```{r}
+regions_list <- list(
+  "Miami_Beach" = c("33139", "33140", "33141", "33154", "33160", "33180"),
+  "Hialeah_Gardens" = c("33018"),
+  "Hialeah" = c("33010", "33012", "33013", "33014", "33015", "33016"),
+  "Opa_locka" = c("33054", "33055", "33056"),
+  "Northeast" = c("33161", "33162", "33179", "33181", "33138", "33137", "33132"),
+  "Coral_Gables" = c("33146"),
+  "Coconut_Grove" = c("33133"),
+  "Southwest_Miami" = c("33155", "33156", "33157", "33158", "33165", "33173",
+                        "33175", "33176", "33177", "33183", "33186", "33187",
+                        "33189", "33193", "33196", "33194", "33184", "33144",
+                        "33174", "33134", "33135", "33145", "33185", "33143",
+                        "33170", "33190"),
+  "Homestead" = c("33030", "33031", "33032", "33033", "33034", "33035", "33039"),
+  "Downtown_Miami" = c("33128", "33129", "33130", "33131"),
+  "Key_Biscayne" = c("33149"),
+  "NW_Miami" = c("33192", "33182", "33172", "33178", "33166", "33122", "33126",
+                 "33169", "33167", "33168", "33147", "33150", "33142", "33127",
+                 "33136", "33125")
+)
+
+zip_region_df <- data.frame(ZIP_CODE = character(), Region = character(), stringsAsFactors = FALSE)
+for (region in names(regions_list)) {
+  zips <- regions_list[[region]]
+  temp_df <- data.frame(ZIP_CODE = zips, Region = region, stringsAsFactors = FALSE)
+  zip_region_df <- rbind(zip_region_df, temp_df)
+}
+
+df_with_zip$ZIP_CODE <- as.character(df_with_zip$ZIP_CODE)
+zip_region_df$ZIP_CODE <- as.character(zip_region_df$ZIP_CODE)
+
+df_with_zip <- merge(df_with_zip, zip_region_df, by = "ZIP_CODE", all.x = TRUE)
+
+df_with_zip$Region[is.na(df_with_zip$Region)] <- "Other"
+```
+
+#### Removing unneccessary columns
+
+First we remove the identifier from the data . It is not nessecary when we want to give the data to the model.
+```{r}
+library(dplyr)
+df_with_zip <- df_with_zip %>% dplyr::select(-PARCELNO)
+```
+
+#### Log Transform skewed distributed variables
+
+As we notices before quite a few variables have very skewed distributions. We fix that by log-transforming them. Since we have mayn variables that are simialr in their sementics, e.g. distance to some POI, it nmakes sense to scale all of them, even if some do not have very skewed original distributions. The target variable is also skewed, but we will not transform it now, but only after we did the stratified train/valid/test split to keep the correct distribution in the target.
+```{r}
+variables_to_log_transform <- c("WATER_DIST", "TOT_LVG_AREA", "LND_SQFOOT", "SPEC_FEAT_VAL",
+                                "RAIL_DIST", "OCEAN_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                                "HWY_DIST", "age")
+
+
+for (var in variables_to_log_transform) {
+  zeros <- sum(df_with_zip[[var]] == 0, na.rm = TRUE)
+  negatives <- sum(df_with_zip[[var]] < 0, na.rm = TRUE)
+  cat("Variable:", var, "- Zeros:", zeros, "- Negatives:", negatives, "\n")
+}
+```
+
+```{r}
+columns_to_transform <- c("WATER_DIST", "TOT_LVG_AREA", "LND_SQFOOT", "SPEC_FEAT_VAL",
+                          "RAIL_DIST", "OCEAN_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                          "HWY_DIST", "age")
+
+for (col in columns_to_transform) {
+
+  if (any(df_with_zip[[col]] <= 0, na.rm = TRUE)) {
+   
+    df_with_zip[[col]] <- log1p(df_with_zip[[col]]) #for the columns with 0 values we use log(x+1)
+  } else {
+   
+    df_with_zip[[col]] <- log(df_with_zip[[col]])
+  }
+}
+head(df_with_zip)
+```
+We plot the distribution histograms again to see if it worked.
+```{r}
+for (col in columns_to_transform) {
+  hist(df_with_zip[[col]], 
+       breaks = 30, 
+       main = paste("Histogram of Log-Transformed", col), 
+       xlab = paste("Log(", col, ")", sep = ""), 
+       col = "skyblue")
+}
+```
+
+#### Scaling numerical Columns
+
+Now we want to scale the numerical columns. Many machine learning models work better when features are on a similar scale. Since many of R's functions already to scaling internally, we wouldn't actually need to do this step. We do it here as a demonstration how to, but continue with the unscaled data.
+```{r}
+scaled_data <- df_with_zip
+str(scaled_data)
+
+numerical_cols <- c("LND_SQFOOT", "TOT_LVG_AREA", "SPEC_FEAT_VAL", "RAIL_DIST",
+                    "OCEAN_DIST", "WATER_DIST", "CNTR_DIST", "SUBCNTR_DI",
+                    "HWY_DIST", "age")
+scaled_data[numerical_cols] <- scale(scaled_data[numerical_cols])
+
+```
+
+#### Encoding categorical columns
+
+We now need to encode categorical columns since many ML methods cannot use them. The noise dummy is already encoded and the structure quality grade is also ordinal on an integer scale, which models can work with. Therefore we only need to encode the mapped Regions by using One-Hot encoding.
+```{r}
+df_with_zip <- dummy_cols(df_with_zip, select_columns = "Region", remove_first_dummy = TRUE, remove_selected_columns = TRUE)
+```
+
+Now we have our final data.
+```{r}
+data_clean <- df_with_zip
+data_clean <- data_clean %>% dplyr::select(-ZIP_CODE)
+factor_vars <- sapply(data_clean, is.factor)
+data_clean[factor_vars] <- lapply(data_clean[factor_vars], function(x) as.numeric(as.character(x)))
+```
+
+```{r}
+data_clean <- data_clean[data_clean$SALE_PRC < 8000000, ]
+#data_scale <- scale(data_clean[ , -which(names(data_clean) == "SALE_PRC")])
+#data_scale <- as.data.frame(data_scale)
+#data_scale$SALE_PRC <- data_clean$SALE_PRC
+#data_clean <- data_scale
+#data_clean <- as.data.frame(data_clean)
+
+
+constant_cols <- sapply(data_clean, function(col) length(unique(col)) == 1)
+
+data_clean <- data_clean[, !constant_cols]
+```
+
+
+## 4
+
+First we set up the data partition into the train/valid/test splits and log-transform the target variable.
+```{r}
+library(caret)
+
+set.seed(12345)
+
+train_valid_idx <- createDataPartition(data_clean$SALE_PRC, p = 0.7, list = FALSE)
+train_valid <- data_clean[train_valid_idx, ]
+test <- data_clean[-train_valid_idx, ]
+
+train_idx <- createDataPartition(train_valid$SALE_PRC, p = 0.7, list = FALSE)
+train <- train_valid[train_idx, ]
+valid <- train_valid[-train_idx, ]
+
+#train$log_SALE_PRC <- log(train$SALE_PRC)
+#train <- train %>% dplyr::select(-SALE_PRC)
+```
+We write a function to train the model since we will reuse it quite some times.
+```{r}
+model_results <- function(train, valid, maxdepths = NULL, weights = NULL){
+
+  set.seed(12345)
+  library(ranger)
+  
+  rf_model <- ranger(
+    formula = SALE_PRC ~ .,     # Formula
+    data = train,
+    max.depth = maxdepths,# Training data
+    case.weights = weights,
+    importance = "permutation"
+  )
+  
+  model <- rf_model
+  
+  rf_pred <- predict(rf_model, data = valid)$predictions
+  
+  
+  residual_plot <- plot(valid$SALE_PRC, rf_pred,
+                        xlab = "Actual Sale Price", 
+                        ylab = "Predicted Sale Price")
+  abline(0,1,col = "red", lwd = 2)
+  
+
+  rmse_result <- sqrt(mean((rf_pred - valid$SALE_PRC)^2))
+  
+  ss_total <- sum((valid$SALE_PRC - mean(valid$SALE_PRC))^2)
+  ss_residual <- sum((valid$SALE_PRC - rf_pred)^2)
+  r_squared <- 1 - (ss_residual / ss_total)
+  
+  n <- nrow(valid)             
+  p <- ncol(train) - 1        
+  adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
+  
+  # Output results
+  cat("RMSE:", rmse_result, "\n")
+  cat("R-squared:", r_squared, "\n")
+  cat("Adjusted R-squared:", adjusted_r_squared, "\n")
+  
+  feature_importance <- rf_model$variable.importance
+  
+
+  return(list(
+    model = model,
+    feature_importance = feature_importance
+    ))
+}
+```
+First test is training the model on all default values for the parameters in the Random Forest Regression and get RMSE and the residual plot for the predicitons of the validation data.
+```{r}
+first_test <- model_results(train, valid)
+```
+As expected the model is well fitted to the bulk of the data that is lwoer to mid range sale prices for homes but struggles with the higher priced luxury homes that are rarer and more complex cases. We therefore give these observations more weights by assigning each observations the weight "price of home/max priced home".
+```{r}
+weights <- (train$SALE_PRC / max(train$SALE_PRC))^(1)
+```
+We now train th emodel again with the waits and the rest default values.
+```{r}
+weight_test <- model_results(train, valid, weights= weights)
+```
+Now we can set up the hyper-parameter tuning to obtain the optimal the maximum tree depth. First we define a rmse function.
+```{r}
+rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2))
+}
+```
+Now we set up the parameter grid to be tested and implement the tuning.
+```{r}
+set.seed(12345)
+max_depth_values <- seq(1, 37, by = 3)
+
+results <- data.frame(
+  max_depth = numeric(),
+  rmse = numeric()
+)
+
+
+for (depth in max_depth_values) {
+  set.seed(1234)
+  # Train the ranger model with the current max.depth
+  rf_model <- ranger(
+    formula = SALE_PRC ~ .,     # Formula
+    data = train,                  # Training data
+    max.depth = depth, # Current max.depth value
+    case.weights = weights # Case weights
+  )
+  
+  # Predict on the validation dataset
+  rf_pred <- predict(rf_model, data = valid)$predictions
+  
+  # Calculate RMSE using the custom function
+  actual_values <- valid$SALE_PRC  # Assuming log-transformed target
+  current_rmse <- rmse(actual = actual_values, predicted = rf_pred)
+  
+  ss_total <- sum((actual_values - mean(actual_values))^2)
+  ss_residual <- sum((actual_values - rf_pred)^2)
+  r_squared <- 1 - (ss_residual / ss_total)
+  
+  n <- nrow(valid)                # Number of observations
+  p <- ncol(train) - 1            # Number of predictors (excluding target)
+  adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
+  
+  # Store the results
+  results <- rbind(results, data.frame(max_depth = depth, rmse = current_rmse, r_squared = r_squared,
+      adjusted_r_squared = adjusted_r_squared))
+}
+
+```
+Printing the results.
+```{r}
+print(results)
+```
+Plotting the max depths vs the RMSE.
+```{r}
+plot(
+  results$max_depth, results$rmse, 
+  type = "b", 
+  col = "blue", 
+  xlab = "Max Depth", 
+  ylab = "RMSE", 
+  main = "Hyperparameter Tuning: Max Depth vs RMSE"
+)
+```
+
+
+
+
+```{r}
+testing_1 <- model_results(train, valid, 1, weights)
+```
+
+```{r}
+testing_25 <- model_results(train, valid, 25, weights)
+
+importance <- testing_25$feature_importance
+print(importance)
+```
+
+```{r}
+testing_37 <- model_results(train, valid, 37, weights)
+```
+
+
+## 5
+
+```{r}
+model_final <- testing_25$model
+```
+
+
+
+
+
+```{r}
+rf_pred <- predict(model_final, data = test)$predictions
+
+
+plot(test$SALE_PRC, rf_pred)
+abline(0,1,col = "red", lwd = 2)
+
+# Calculate RMSE (Root Mean Squared Error)
+rmse <- sqrt(mean((rf_pred - test$SALE_PRC)^2))
+cat("RMSE:", rmse, "\n")
+```
+
+
+
