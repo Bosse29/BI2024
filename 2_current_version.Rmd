@@ -368,6 +368,7 @@ data_clean <- data_clean[, !constant_cols]
 ## 4
 
 First we set up the data partition into the train/valid/test splits and log-transform the target variable.
+It means 70% of the data is for training and 30% for testing and from the training data the 70% is for trainiing and 30% for validation.
 ```{r}
 library(caret)
 
@@ -529,7 +530,6 @@ testing_37 <- model_results(train, valid, 37, weights)
 ```
 
 
-## 5
 
 ```{r}
 model_final <- testing_25$model
@@ -537,19 +537,162 @@ model_final <- testing_25$model
 
 
 
+## 5
 
 
 ```{r}
+# Make predictions on the test data
 rf_pred <- predict(model_final, data = test)$predictions
 
+# Plot the predictions vs actual values
+plot(test$SALE_PRC, rf_pred,
+     xlab = "Actual Sale Price", 
+     ylab = "Predicted Sale Price", 
+     main = "Predicted vs Actual Sale Price")
+abline(0, 1, col = "red", lwd = 2)
 
-plot(test$SALE_PRC, rf_pred)
-abline(0,1,col = "red", lwd = 2)
-
-# Calculate RMSE (Root Mean Squared Error)
+# Calculate RMSE
 rmse <- sqrt(mean((rf_pred - test$SALE_PRC)^2))
 cat("RMSE:", rmse, "\n")
+
+# Calculate R-squared
+ss_total <- sum((test$SALE_PRC - mean(test$SALE_PRC))^2)
+ss_residual <- sum((test$SALE_PRC - rf_pred)^2)
+r_squared <- 1 - (ss_residual / ss_total)
+cat("R-squared:", r_squared, "\n")
+
+# Calculate Adjusted R-squared
+n <- nrow(test)                 # Number of observations
+p <- ncol(test) - 1             # Number of predictors (excluding target)
+adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
+cat("Adjusted R-squared:", adjusted_r_squared, "\n")
+
 ```
+
+## Retrain 
+```{r}
+# Combine the train and validation datasets
+train_valid_combined <- rbind(train, valid)
+
+# Set the same hyperparameters used previously (e.g., max.depth, weights)
+set.seed(12345)
+final_rf_model <- ranger(
+  formula = SALE_PRC ~ .,     # Formula
+  data = train_valid_combined, # Combined train and validation data
+  max.depth = 25,             # Replace with the optimal max depth found
+  case.weights = (train_valid_combined$SALE_PRC / max(train_valid_combined$SALE_PRC))^(1), # Replace with weights if used
+  importance = "permutation"  # Importance type
+)
+
+# Make predictions on the test data
+rf_pred_test <- predict(final_rf_model, data = test)$predictions
+
+# Plot the predictions vs actual values
+plot(test$SALE_PRC, rf_pred_test,
+     xlab = "Actual Sale Price", 
+     ylab = "Predicted Sale Price", 
+     main = "Predicted vs Actual Sale Price")
+abline(0, 1, col = "red", lwd = 2)
+
+# Calculate RMSE
+rmse_test <- sqrt(mean((rf_pred_test - test$SALE_PRC)^2))
+
+# Calculate R-squared
+ss_total_test <- sum((test$SALE_PRC - mean(test$SALE_PRC))^2)
+ss_residual_test <- sum((test$SALE_PRC - rf_pred_test)^2)
+r_squared_test <- 1 - (ss_residual_test / ss_total_test)
+
+# Calculate Adjusted R-squared
+n_test <- nrow(test)                # Number of observations in the test set
+p_test <- ncol(train_valid_combined) - 1  # Number of predictors (excluding target)
+adjusted_r_squared_test <- 1 - ((1 - r_squared_test) * (n_test - 1) / (n_test - p_test - 1))
+
+# Print the results
+cat("RMSE on Test Data:", rmse_test, "\n")
+cat("R-squared on Test Data:", r_squared_test, "\n")
+cat("Adjusted R-squared on Test Data:", adjusted_r_squared_test, "\n")
+
+
+```
+
+```{r}
+# Create a data frame to compare the two models
+comparison_results <- data.frame(
+  Metric = c("RMSE", "R-squared", "Adjusted R-squared"),
+  Model_1 = c(rmse, r_squared, adjusted_r_squared),  # Results from the first model
+  Model_2 = c(rmse_test, r_squared_test, adjusted_r_squared_test)  # Results from the retrained model
+)
+
+# Convert to a readable format with no scientific notation
+comparison_results$Model_1 <- format(comparison_results$Model_1, scientific = FALSE, digits = 6)
+comparison_results$Model_2 <- format(comparison_results$Model_2, scientific = FALSE, digits = 6)
+
+# Print the table
+print(comparison_results)
+
+```
+
+## Baseline 
+## Mean
+
+```{r}
+# Calculate the mean of the target variable from the training set
+mean_price <- mean(train_valid_combined$SALE_PRC)
+
+# Use the mean predictor for all test data
+baseline_predictions <- rep(mean_price, nrow(test))
+
+# Calculate RMSE for the baseline model
+baseline_rmse <- sqrt(mean((test$SALE_PRC - baseline_predictions)^2))
+
+# Calculate R-squared for the baseline model
+ss_total_baseline <- sum((test$SALE_PRC - mean(test$SALE_PRC))^2)
+ss_residual_baseline <- sum((test$SALE_PRC - baseline_predictions)^2)
+baseline_r_squared <- 1 - (ss_residual_baseline / ss_total_baseline)
+
+# Calculate Adjusted R-squared for the baseline model
+n_baseline <- nrow(test)                # Number of observations in the test set
+p_baseline <- 0                         # No predictors in the baseline model
+adjusted_r_squared_baseline <- 1 - ((1 - baseline_r_squared) * (n_baseline - 1) / (n_baseline - p_baseline - 1))
+
+# Print the baseline metrics
+cat("Baseline RMSE:", baseline_rmse, "\n")
+cat("Baseline R-squared:", baseline_r_squared, "\n")
+cat("Baseline Adjusted R-squared:", adjusted_r_squared_baseline, "\n")
+
+
+```
+## Median 
+
+```{r}
+# Calculate the median of the target variable from the training set
+median_price <- median(train$SALE_PRC)
+
+# Use the median predictor for all test data
+baseline_median_predictions <- rep(median_price, nrow(test))
+
+# Calculate RMSE for the median baseline model
+baseline_median_rmse <- sqrt(mean((test$SALE_PRC - baseline_median_predictions)^2))
+
+# Calculate R-squared for the median baseline model
+ss_total_median <- sum((test$SALE_PRC - mean(test$SALE_PRC))^2)
+ss_residual_median <- sum((test$SALE_PRC - baseline_median_predictions)^2)
+baseline_median_r_squared <- 1 - (ss_residual_median / ss_total_median)
+
+# Calculate Adjusted R-squared for the median baseline model
+n_median <- nrow(test)                # Number of observations in the test set
+p_median <- 0                         # No predictors in the median baseline model
+adjusted_r_squared_median <- 1 - ((1 - baseline_median_r_squared) * (n_median - 1) / (n_median - p_median - 1))
+
+# Print the baseline metrics
+cat("Baseline Median RMSE:", baseline_median_rmse, "\n")
+cat("Baseline Median R-squared:", baseline_median_r_squared, "\n")
+cat("Baseline Median Adjusted R-squared:", adjusted_r_squared_median, "\n")
+
+
+```
+
+
 
 
 
