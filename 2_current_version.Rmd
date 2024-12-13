@@ -615,6 +615,8 @@ cat("Adjusted R-squared on Test Data:", adjusted_r_squared_test, "\n")
 
 ```
 
+
+
 ```{r}
 # Create a data frame to compare the two models
 comparison_results <- data.frame(
@@ -629,6 +631,30 @@ comparison_results$Model_2 <- format(comparison_results$Model_2, scientific = FA
 
 # Print the table
 print(comparison_results)
+
+```
+## Checking bias 5 f
+```{r}
+table(train_valid$avno60plus)
+```
+
+```{r}
+table(test$avno60plus)
+```
+
+
+```{r}
+test_groups <- split(test, test$avno60plus)
+group_performance <- lapply(test_groups, function(group) {
+  predictions <- predict(final_rf_model, data = group)$predictions
+  rmse <- sqrt(mean((group$SALE_PRC - predictions)^2))
+  r_squared <- 1 - sum((group$SALE_PRC - predictions)^2) / sum((group$SALE_PRC - mean(group$SALE_PRC))^2)
+  return(data.frame(RMSE = rmse, R_Squared = r_squared))
+})
+
+group_performance <- do.call(rbind, group_performance)
+group_performance$Region <- names(test_groups)
+print(group_performance)
 
 ```
 
@@ -684,13 +710,118 @@ n_median <- nrow(test)                # Number of observations in the test set
 p_median <- 0                         # No predictors in the median baseline model
 adjusted_r_squared_median <- 1 - ((1 - baseline_median_r_squared) * (n_median - 1) / (n_median - p_median - 1))
 
-# Print the baseline metrics
+# Print the baseline  metrics
 cat("Baseline Median RMSE:", baseline_median_rmse, "\n")
 cat("Baseline Median R-squared:", baseline_median_r_squared, "\n")
 cat("Baseline Median Adjusted R-squared:", adjusted_r_squared_median, "\n")
 
 
 ```
+
+```{r}
+quart <- quantile(data_clean$SALE_PRC, probs = 0.9, na.rm = TRUE)
+data_clean_1 <- data_clean[data_clean$SALE_PRC < quart, ]
+data_clean_2 <- data_clean[data_clean$SALE_PRC >= quart, ]
+#data_scale <- scale(data_clean[ , -which(names(data_clean) == "SALE_PRC")])
+#data_scale <- as.data.frame(data_scale)
+#data_scale$SALE_PRC <- data_clean$SALE_PRC
+#data_clean <- data_scale
+#data_clean <- as.data.frame(data_clean)
+
+
+constant_cols_2 <- sapply(data_clean_2, function(col) length(unique(col)) == 1)
+data_clean_2 <- data_clean_2[, !constant_cols_2]
+
+constant_cols <- sapply(data_clean_1, function(col) length(unique(col)) == 1)
+data_clean_1 <- data_clean_1[, !constant_cols]
+```
+
+
+## 6 a
+
+```{r}
+library(caret)
+
+set.seed(12345)
+
+train_valid_idx <- createDataPartition(data_clean_1$SALE_PRC, p = 0.7, list = FALSE)
+train_valid <- data_clean_1[train_valid_idx, ]
+test <- data_clean_1[-train_valid_idx, ]
+
+train_valid_idx_2 <- createDataPartition(data_clean_2$SALE_PRC, p = 0.7, list = FALSE)
+train_valid_2 <- data_clean_2[train_valid_idx_2, ]
+test_2 <- data_clean_2[-train_valid_idx_2, ]
+
+
+#train$log_SALE_PRC <- log(train$SALE_PRC)
+#train <- train %>% dplyr::select(-SALE_PRC)
+```
+
+```{r}
+set.seed(12345)
+final_rf_model <- ranger(
+  formula = SALE_PRC ~ .,     # Formula
+  data = train_valid, # Combined train and validation data
+  max.depth = 25,             # Replace with the optimal max depth found
+  case.weights = (train_valid$SALE_PRC / max(train_valid$SALE_PRC))^(1), # Replace with weights if used
+  importance = "permutation"  # Importance type
+)
+
+# Make predictions on the test data
+rf_pred_test <- predict(final_rf_model, data = test)$predictions
+
+# Plot the predictions vs actual values
+plot(test$SALE_PRC, rf_pred_test,
+     xlab = "Actual Sale Price", 
+     ylab = "Predicted Sale Price", 
+     main = "Predicted vs Actual Sale Price")
+abline(0, 1, col = "red", lwd = 2)
+
+# Calculate RMSE
+rmse_test <- sqrt(mean((rf_pred_test - test$SALE_PRC)^2))
+
+# Calculate R-squared
+ss_total_test <- sum((test$SALE_PRC - mean(test$SALE_PRC))^2)
+ss_residual_test <- sum((test$SALE_PRC - rf_pred_test)^2)
+r_squared_test <- 1 - (ss_residual_test / ss_total_test)
+
+# Calculate Adjusted R-squared
+n_test <- nrow(test)                # Number of observations in the test set
+p_test <- ncol(train_valid_combined) - 1  # Number of predictors (excluding target)
+adjusted_r_squared_test <- 1 - ((1 - r_squared_test) * (n_test - 1) / (n_test - p_test - 1))
+
+# Print the results
+cat("RMSE on Test Data:", rmse_test, "\n")
+cat("R-squared on Test Data:", r_squared_test, "\n")
+cat("Adjusted R-squared on Test Data:", adjusted_r_squared_test, "\n")
+
+
+```
+
+
+```{r}
+lower90 <- model_results(train_valid, test, maxdepths = 25,weights = (train_valid$SALE_PRC / max(train_valid$SALE_PRC)))
+```
+```{r}
+sort(lower90$feature_importance,decreasing = TRUE)
+```
+
+```{r}
+top_10 <- model_results(train_valid_2, test_2, maxdepths = 25,weights = (train_valid_2$SALE_PRC / max(train_valid_2$SALE_PRC)))
+```
+```{r}
+sort(top_10$feature_importance,decreasing = TRUE)
+```
+
+```
+
+
+
+
+
+
+
+
 
 
 
